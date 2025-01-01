@@ -1,0 +1,45 @@
+import logging
+from . import SpeechSynthesizer
+
+logger = logging.getLogger(__name__)
+
+
+class VoicevoxSpeechSynthesizer(SpeechSynthesizer):
+    def __init__(
+        self,
+        *,
+        base_url: str = "http://127.0.0.1:50021",
+        speaker: int = 46,
+        max_connections: int = 100,
+        max_keepalive_connections: int = 20,
+        timeout: float = 10.0,
+        debug: bool = False
+    ):
+        super().__init__(
+            max_connections=max_connections,
+            max_keepalive_connections=max_keepalive_connections,
+            timeout=timeout,
+            debug=debug
+        )
+        self.base_url = base_url
+        self.speaker = speaker
+
+    async def get_audio_query(self, text: str):
+        url = f"{self.base_url}/audio_query"
+        response = await self.http_client.post(url, params={"speaker": self.speaker, "text": text})
+        response.raise_for_status()
+        return response.json()
+
+    async def synthesize(self, text) -> bytes:
+        if not text or not text.strip():
+            return bytes()
+
+        logger.info(f"Speech synthesize: {text}")
+
+        audio_query = await self.get_audio_query(text)
+        response = await self.http_client.post(
+            url=self.base_url + "/synthesis",
+            params={"speaker": self.speaker},
+            json=audio_query
+        )
+        return response.content
