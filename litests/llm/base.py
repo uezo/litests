@@ -71,7 +71,7 @@ class LLMService(ABC):
         stream_buffer = ""
         response_text = ""
         skip_voice = True if self.skip_voice_before else False
-        async for chunk in self.get_llm_stream_response(messages):
+        async for chunk in self.get_llm_stream_response(context_id, messages):
             stream_buffer += chunk
 
             for spc in self.split_chars:

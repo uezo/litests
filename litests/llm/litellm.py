@@ -1,19 +1,20 @@
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
-import openai
+from litellm import acompletion
 from . import LLMService
 
 logger = getLogger(__name__)
 
 
-class ChatGPTService(LLMService):
+class LiteLLMService(LLMService):
     def __init__(
         self,
         *,
-        openai_api_key: str = None,
+        api_key: str = None,
         system_prompt: str = None,
+        system_prompt_by_user_prompt: bool = False,
         base_url: str = None,
-        model: str = "gpt-4o",
+        model: str = None,
         temperature: float = 0.5,
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
@@ -29,13 +30,20 @@ class ChatGPTService(LLMService):
             option_split_threshold=option_split_threshold,
             skip_before=skip_before
         )
-        self.openai_client = openai.AsyncClient(api_key=openai_api_key, base_url=base_url)
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
+        self.system_prompt_by_user_prompt = system_prompt_by_user_prompt
         self.contexts: List[Dict[str, List]] = {}
 
     def compose_messages(self, context_id: str, text: str) -> List[dict]:
         messages = []
         if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
+            if self.system_prompt_by_user_prompt:
+                messages.append({"role": "user", "content": self.system_prompt})
+                messages.append({"role": "assistant", "content": "ok"})
+            else:
+                messages.append({"role": "system", "content": self.system_prompt})
         messages.extend(self.contexts.get(context_id, []))
         messages.append({"role": "user", "content": text})
         return messages
@@ -47,9 +55,11 @@ class ChatGPTService(LLMService):
         self.contexts[context_id] = messages
 
     async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
-        stream_resp = await self.openai_client.chat.completions.create(
-            messages=messages,
+        stream_resp = await acompletion(
+            api_key=self.api_key,
+            base_url=self.base_url,
             model=self.model,
+            messages=messages,
             temperature=self.temperature,
             stream=True
         )
