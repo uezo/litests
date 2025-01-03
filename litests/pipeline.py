@@ -58,8 +58,8 @@ class LiteSTS:
             sample_rate=vad_sample_rate,
             debug=debug
         )
-        async def on_speech_detected(data: bytes, session_id: str):
-            await self.invoke(STSRequest(context_id=session_id, audio_data=data))
+        async def on_speech_detected(data: bytes, recorded_duration: float, session_id: str):
+            await self.invoke(STSRequest(context_id=session_id, audio_data=data, audio_duration=recorded_duration))
         self.vad.on_speech_detected = on_speech_detected
 
         # Speech-to-Text
@@ -125,6 +125,7 @@ class LiteSTS:
             if self.debug:
                 logger.info(f"Recognized text from request: {recognized_text}")
         performance.request_text = recognized_text
+        performance.voice_length = request.audio_duration
         performance.stt_time = time() - start_time
 
         # Stop on-going response before new response
@@ -141,13 +142,16 @@ class LiteSTS:
                 # LLM performance
                 if performance.llm_first_chunk_time == 0:
                     performance.llm_first_chunk_time = time() - start_time
+                if llm_stream_chunk.voice_text:
+                    voice_text += llm_stream_chunk.voice_text
+                    if performance.llm_first_voice_chunk_time == 0:
+                        performance.llm_first_voice_chunk_time = time() - start_time
                 performance.llm_time = time() - start_time
 
                 audio_chunk = await self.tts.synthesize(llm_stream_chunk.voice_text)
 
-                if llm_stream_chunk.voice_text:
-                    voice_text += llm_stream_chunk.voice_text
-                    # TTS performance
+                # TTS performance
+                if audio_chunk:
                     if performance.tts_first_chunk_time == 0:
                         performance.tts_first_chunk_time = time() - start_time
                     performance.tts_time = time() - start_time
