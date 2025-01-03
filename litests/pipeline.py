@@ -1,4 +1,5 @@
 import logging
+from time import time
 from typing import AsyncGenerator
 from .models import STSRequest, STSResponse
 from .vad import SpeechDetector, StandardSpeechDetector
@@ -10,6 +11,8 @@ from .tts import SpeechSynthesizer
 from .tts.voicevox import VoicevoxSpeechSynthesizer
 from .response_handler import ResponseHandler
 from .response_handler.playaudio import PlayWaveResponseHandler
+from .performance_recorder import PerformanceRecord, PerformanceRecorder
+from .performance_recorder.sqlite import SQLitePerformanceRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,7 @@ class LiteSTS:
         tts_voicevox_speaker: int = 46,
         response_handler: ResponseHandler = None,
         cancel_echo: bool = False,
+        performance_recorder: PerformanceRecorder = None,
         debug: bool = False
     ):
         # Logger
@@ -88,6 +92,9 @@ class LiteSTS:
         if self.cancel_echo:
             self.vad.should_mute = lambda: self.cancel_echo and self.response_handler.is_playing_locally
 
+        # Performance recorder
+        self.performance_recorder = performance_recorder or SQLitePerformanceRecorder()
+
     async def process_audio_samples(self, samples: bytes, context_id: str):
         await self.vad.process_samples(samples, context_id)
 
@@ -95,6 +102,14 @@ class LiteSTS:
         await self.vad.process_stream(input_stream, context_id)
 
     async def invoke(self, request: STSRequest):
+        start_time = time()
+        performance = PerformanceRecord(
+            request.context_id,
+            stt_name=self.stt.__class__.__name__,
+            llm_name=self.llm.__class__.__name__,
+            tts_name=self.tts.__class__.__name__
+        )
+
         if request.text:
             # Use text if exist
             recognized_text = request.text
@@ -109,18 +124,36 @@ class LiteSTS:
                 return
             if self.debug:
                 logger.info(f"Recognized text from request: {recognized_text}")
+        performance.request_text = recognized_text
+        performance.stt_time = time() - start_time
 
         # Stop on-going response before new response
         await self.response_handler.stop_response(request.context_id)
+        performance.stop_response_time = time() - start_time
 
         # LLM
         llm_stream = self.llm.chat_stream(request.context_id, recognized_text)
 
         # TTS
         async def synthesize_stream():
+            voice_text = ""
             async for llm_stream_chunk in llm_stream:
+                # LLM performance
+                if performance.llm_first_chunk_time == 0:
+                    performance.llm_first_chunk_time = time() - start_time
+                performance.llm_time = time() - start_time
+
                 audio_chunk = await self.tts.synthesize(llm_stream_chunk.voice_text)
+
+                if llm_stream_chunk.voice_text:
+                    voice_text += llm_stream_chunk.voice_text
+                    # TTS performance
+                    if performance.tts_first_chunk_time == 0:
+                        performance.tts_first_chunk_time = time() - start_time
+                    performance.tts_time = time() - start_time
+
                 yield (audio_chunk, llm_stream_chunk.text)
+            performance.response_voice_text = voice_text
 
         # Handle response
         await self.response_handler.handle_response(
@@ -136,7 +169,14 @@ class LiteSTS:
             await self.response_handler.handle_response(
                 STSResponse(type="chunk", context_id=request.context_id, text=text_chunk, audio_data=audio_chunk)
             )
+        performance.response_text = response_text
 
         await self.response_handler.handle_response(
             STSResponse(type="final", context_id=request.context_id, text=response_text, audio_data=response_audio)
         )
+
+        performance.total_time = time() - start_time
+        self.performance_recorder.record(performance)
+
+    async def shutdown(self):
+        self.performance_recorder.close()
