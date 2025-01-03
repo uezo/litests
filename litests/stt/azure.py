@@ -1,14 +1,14 @@
-import base64
 import logging
 from . import SpeechRecognizer
 
 logger = logging.getLogger(__name__)
 
 
-class GoogleSpeechRecognizer(SpeechRecognizer):
+class AzureSpeechRecognizer(SpeechRecognizer):
     def __init__(
         self,
-        google_api_key: str,
+        azure_api_key: str,
+        azure_region: str,
         sample_rate: int = 16000,
         language: str = "ja-JP",
         *,
@@ -24,24 +24,19 @@ class GoogleSpeechRecognizer(SpeechRecognizer):
             timeout=timeout,
             debug=debug
         )
-        self.google_api_key = google_api_key
+        self.azure_api_key = azure_api_key
+        self.azure_region = azure_region
         self.sample_rate = sample_rate
 
     async def transcribe(self, data: bytes) -> str:
-        request_body = {
-            "config": {
-                "encoding": "LINEAR16",
-                "sampleRateHertz": self.sample_rate,
-                "languageCode": self.language,
-            },
-            "audio": {
-                "content": base64.b64encode(data).decode("utf-8")
-            },
+        headers = {
+            "Ocp-Apim-Subscription-Key": self.azure_api_key
         }
 
         resp = await self.http_client.post(
-            f"https://speech.googleapis.com/v1/speech:recognize?key={self.google_api_key}",
-            json=request_body
+            f"https://{self.azure_region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language={self.language}",
+            headers=headers,
+            content=data
         )
 
         try:
@@ -52,8 +47,7 @@ class GoogleSpeechRecognizer(SpeechRecognizer):
         if resp.status_code != 200:
             logger.error(f"Failed in recognition: {resp.status_code}\n{resp_json}")
 
-        if resp_json.get("results"):
-            if recognized_text := resp_json["results"][0]["alternatives"][0].get("transcript"):
-                if self.debug:
-                    logger.info(f"Recognized: {recognized_text}")
-                return recognized_text
+        if recognized_text := resp_json.get("DisplayText"):
+            if self.debug:
+                logger.info(f"Recognized: {recognized_text}")
+            return recognized_text
