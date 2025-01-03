@@ -9,11 +9,13 @@ class SpeechRecognizer(ABC):
     def __init__(
         self,
         *,
+        language: str = None,
         max_connections: int = 100,
         max_keepalive_connections: int = 20,
         timeout: float = 10.0,
         debug: bool = False
     ):
+        self.language = language
         self.http_client = httpx.AsyncClient(
             follow_redirects=False,
             timeout=httpx.Timeout(timeout),
