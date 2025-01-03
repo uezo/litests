@@ -6,10 +6,11 @@ A super lightweight Speech-to-Speech framework with modular VAD, STT, LLM and TT
 
 - **🧩 Modular architecture**: VAD, STT, LLM, and TTS are like building blocks—just snap them together! Each one is super simple to integrate with a lightweight interface. Here's what we support out of the box (but feel free to add your own flair!):
     - VAD: Built-in Standard VAD (turn-end detection based on silence length)
-    - STT: Google Speech Service (for now)
-    - LLM: ChatGPT (**Dify support is coming soon! 🚄** Once it's ready, you’ll be able to use all the LLMs supported by Dify!)
+    - STT: Google, Azure and OpenAI
+    - ChatGPT, Gemini, Claude. Plus, with support for LiteLLM and Dify, you can use any LLMs they support!
     - TTS: VOICEVOX / AivisSpeech, OpenAI, SpeechGateway (Yep, all the TTS supported by SpeechGateway, including Style-Bert-VITS2 and NijiVoice!)
 - **🥰 Rich expression**: In addition to voice, supports text-based information exchange, enabling rich expressions like facial expressions and motions on the front end. It also supports methods like Chain-of-Thought, allowing for maximum utilization of capabilities.
+- **🏎️ Super speed**: Speech synthesis and playback are performed in parallel with streaming responses from the LLM, enabling dramatically faster voice responses compared to simply connecting the components sequentially.
 
 
 ## 🎁 Installation
@@ -114,6 +115,24 @@ await sts.start_with_stream(async_generator)
 await sts.process_audio_samples(chunk, session_id)
 ```
 
+See also `examples/local/llms.py`. For example, you can use Gemini by the following code:
+
+```python
+gemini = GeminiService(
+    gemini_api_key=GEMINI_API_KEY
+)
+
+sts = litests.LiteSTS(
+    vad=vad,
+    stt=stt,
+    llm=gemini,     # <- Set gemini here
+    tts=tts,
+    response_handler=response_handler,
+    cancel_echo=True,
+    debug=True
+)
+```
+
 
 ## 🧩 Make custom modules
 
@@ -161,7 +180,7 @@ class LLMService(ABC):
         pass
 
     @abstractmethod
-    async def get_llm_stream_response(self, messages: List[dict]) -> AsyncGenerator[str, None]:
+    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
         pass
 ```
 
@@ -209,3 +228,23 @@ Refer to `examples/websocket`.
     ```
 
 **NOTE**: To make the core mechanism easier to understand, exception handling and resource cleanup have been omitted. If you plan to use this in a production service, be sure to implement these as well.
+
+
+## 📈 Performance Recorder
+
+Records the time taken for each component in the Speech-to-Speech pipeline, from invocation to completion.
+
+The recorded metrics include:
+
+- `stt_time`: Time taken for transcription by the Speech-to-Text service.
+- `stop_response_time`: Time taken to stop the response of a previous request, if any.
+- `llm_first_chunk_time`: Time taken to receive the first sentence from the LLM.
+- `llm_first_voice_chunk_time`: Time taken to receive the first sentence from the LLM that is used for speech synthesis.
+- `llm_time`: Time taken to receive the full response from the LLM.
+- `tts_first_chunk_time`: Time taken to synthesize the first sentence for speech synthesis.
+- `tts_time`: Time taken to complete the entire speech synthesis process.
+- `total_time`: Total time taken for the entire pipeline to complete.
+
+The key metric is `tts_first_chunk_time`, which measures the time between when the user finishes speaking and when the system begins its response.
+
+By default, SQLite is used for storing data, but you can implement a custom recorder by using the `PerformanceRecorder` interface.
