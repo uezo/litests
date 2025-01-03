@@ -93,6 +93,9 @@ class LLMService(ABC):
             await asyncio.sleep(0.001)   # wait slightly in every loop not to use up CPU
 
         if stream_buffer:
+            if skip_voice:
+                if self.skip_voice_before in stream_buffer:
+                    skip_voice = False
             yield LLMResponse(stream_buffer, None if skip_voice else self.to_voice_text(stream_buffer))
             response_text += stream_buffer
 
