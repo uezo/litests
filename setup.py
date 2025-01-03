@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="litests",
-    version="0.1.1",
+    version="0.1.2",
     url="https://github.com/uezo/litests",
     author="uezo",
     author_email="uezo@uezo.net",

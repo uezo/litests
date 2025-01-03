@@ -134,6 +134,40 @@ sts = litests.LiteSTS(
 ```
 
 
+## ⚡️ Function Calling
+
+You can use Function Calling (Tool Call) by registering function specifications and their handlers with the `ChatGPTService` instance through `register_tool`, as shown below. Functions will be automatically invoked as needed.
+
+**NOTE**: Currently, only ChatGPT is supported.
+
+```python
+# Instantiate ChatGPTService
+chatgpt = ChatGPTService(
+    openai_api_key=OPENAI_API_KEY,
+    system_prompt=SYSTEM_PROMPT
+)
+
+# Make function
+async def get_weather(location: str = None):
+    weather = await weather_api(location=location)
+    return weather  # {"weather": "clear", "temperature": 23.4}
+
+# Register spec and function
+chatgpt.register_tool({
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {"type": "string"}
+            },
+        },
+    }
+}, get_weather)
+```
+
+
 ## 🧩 Make custom modules
 
 By creating modules that inherit the interfaces for VAD, STT, LLM, TTS, and the Response Handler, you can integrate them into the pipeline. Below, only the interfaces are introduced; for implementation details, please refer to the existing modules included in the repository.
