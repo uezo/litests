@@ -39,7 +39,7 @@ class StandardSpeechDetector(SpeechDetector):
         sample_rate: int = 16000,
         channels: int = 1,
         preroll_buffer_count: int = 5,
-        on_speech_detected: Optional[Callable[[bytes, str], Awaitable[None]]] = None,
+        on_speech_detected: Optional[Callable[[bytes, float, str], Awaitable[None]]] = None,
         to_linear16: Optional[Callable[[bytes], bytes]] = None,
         debug: bool = False
     ):
@@ -68,9 +68,9 @@ class StandardSpeechDetector(SpeechDetector):
         self.amplitude_threshold = 32767 * (10 ** (value / 20.0))
         logger.debug(f"Updated volume_db_threshold to {value} dB, amplitude_threshold={self.amplitude_threshold}")
 
-    async def execute_on_speech_detected(self, recorded_data, session_id):
+    async def execute_on_speech_detected(self, recorded_data: bytes, recorded_duration: float, session_id: str):
         try:
-            await self.on_speech_detected(recorded_data, session_id)
+            await self.on_speech_detected(recorded_data, recorded_duration, session_id)
         except Exception as ex:
             logger.error(f"Error in task for session {session_id}: {ex}", exc_info=True)
 
@@ -121,15 +121,16 @@ class StandardSpeechDetector(SpeechDetector):
                 session.silence_duration += sample_duration
 
             if session.silence_duration >= self.silence_duration_threshold:
-                if session.record_duration - session.silence_duration < self.min_duration:
+                recorded_duration = session.record_duration - session.silence_duration
+                if recorded_duration < self.min_duration:
                     if self.debug:
-                        logger.info(f"Recording too short: {session.record_duration - session.silence_duration} sec")
+                        logger.info(f"Recording too short: {recorded_duration} sec")
                 else:
                     if self.debug:
-                        logger.info(f"Recording finished: {session.record_duration - session.silence_duration} sec")
+                        logger.info(f"Recording finished: {recorded_duration} sec")
                     if self.on_speech_detected:
                         recorded_data = bytes(session.buffer)
-                        asyncio.create_task(self.execute_on_speech_detected(recorded_data, session.session_id))
+                        asyncio.create_task(self.execute_on_speech_detected(recorded_data, recorded_duration, session.session_id))
                 session.reset()
 
             elif session.record_duration >= self.max_duration:
