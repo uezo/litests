@@ -164,4 +164,5 @@ class StandardSpeechDetector(SpeechDetector):
 
     def delete_session(self, session_id: str):
         if session_id in self.recording_sessions:
+            self.recording_sessions[session_id].reset()
             del self.recording_sessions[session_id]
