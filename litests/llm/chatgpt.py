@@ -53,7 +53,8 @@ class ChatGPTService(LLMService):
 
     def update_context(self, context_id: str, request_text: str, response_text: str):
         messages = self.contexts.get(context_id, [])
-        messages.append({"role": "user", "content": request_text})
+        if len(messages) == 0 or messages[-1]["role"] != "tool":
+            messages.append({"role": "user", "content": request_text})
         messages.append({"role": "assistant", "content": response_text})
         self.contexts[context_id] = messages
 
