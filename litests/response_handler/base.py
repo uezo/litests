@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 import asyncio
 import logging
+import queue
+import threading
 from ..models import STSResponse
 
 logger = logging.getLogger(__name__)
@@ -22,24 +24,26 @@ class ResponseHandler(ABC):
 class ResponseHandlerWithQueue(ResponseHandler):
     def __init__(self):
         super().__init__()
-        self.queue: asyncio.Queue[STSResponse] = asyncio.Queue()
-        self.worker_task = None
+        self.queue: queue.Queue[STSResponse] = queue.Queue()
+        self.stop_event = threading.Event()
+        self.worker_thread = threading.Thread(target=self.start_worker, daemon=True)
+        self.worker_thread.start()
 
     async def handle_response(self, response: STSResponse):
-        await self.queue.put(response)
+        self.queue.put(response)
 
     async def stop_response(self, context_id: str):
-        await self.cancel()
+        self.cancel()
 
     @abstractmethod
     async def process_response_item(self, response: STSResponse):
         pass
 
-    async def worker(self):
+    def start_worker(self):
         while True:
-            response = await self.queue.get()
+            response = self.queue.get()
             try:
-                await self.process_response_item(response)
+                asyncio.run(self.process_response_item(response))
 
             except Exception as ex:
                 logger.error(f"Error processing STSResponse: {ex}", exc_info=True)
@@ -47,19 +51,15 @@ class ResponseHandlerWithQueue(ResponseHandler):
             finally:
                 self.queue.task_done()
 
-    async def start(self):
-        if not self.worker_task:
-            await self.worker()
+    def close(self):
+        self.stop_event.set()
+        self.cancel()
+        self.worker_thread.join()
 
-    async def stop(self):
-        if self.worker_task:
-            self.worker_task.cancel()
-            await asyncio.gather(self.worker_task, return_exceptions=True)
-
-    async def cancel(self):
+    def cancel(self):
         while not self.queue.empty():
             try:
                 _ = self.queue.get_nowait()
                 self.queue.task_done()
-            except asyncio.QueueEmpty:
+            except:
                 break
