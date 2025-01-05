@@ -1,5 +1,3 @@
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import io
 import logging
 import wave
@@ -13,13 +11,10 @@ logger = logging.getLogger(__name__)
 class PlayWaveResponseHandler(ResponseHandlerWithQueue):
     def __init__(self):
         super().__init__()
-        self.executor = ThreadPoolExecutor()
         self.to_wave = None
         self.p = pyaudio.PyAudio()
         self.play_stream = None
         self.chunk_size = 1024
-
-        asyncio.create_task(self.start())
 
     def play_audio(self, content: bytes):
         try:
@@ -52,5 +47,4 @@ class PlayWaveResponseHandler(ResponseHandlerWithQueue):
     async def process_response_item(self, response: STSResponse):
         if response.type == "chunk":
             if response.audio_data:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(self.executor, self.play_audio, response.audio_data)
+                self.play_audio(response.audio_data)
