@@ -132,7 +132,7 @@ async def test_chatgpt_service_tool_calls():
     service = ChatGPTService(
         openai_api_key=OPENAI_API_KEY,
         system_prompt="You can call a tool to solve math problems if necessary.",
-        model="gpt-3.5-turbo",
+        model=MODEL,
         temperature=0.5
     )
     context_id = "test_context_tool"
@@ -141,7 +141,6 @@ async def test_chatgpt_service_tool_calls():
     async def solve_math(problem: str) -> Dict[str, Any]:
         """
         Tool function example: parse the problem and return a result.
-        （本来は非同期にするなら async def で書いてあげる）
         """
         if problem.strip() == "1+1":
             return {"answer": 2}

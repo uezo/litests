@@ -1,10 +1,15 @@
-import asyncio
 from logging import getLogger
-from typing import AsyncGenerator, Dict, List
+from typing import AsyncGenerator, Awaitable, Callable, Dict, List
 import google.generativeai as genai
 from . import LLMService
 
 logger = getLogger(__name__)
+
+
+class ToolCall:
+    def __init__(self, name: str, arguments: dict):
+        self.name = name
+        self.arguments = arguments
 
 
 class GeminiService(LLMService):
@@ -39,6 +44,9 @@ class GeminiService(LLMService):
             system_instruction=system_prompt
         )
         self.contexts: List[Dict[str, List]] = {}
+        self.tools: List[genai.types.Tool] = []
+        self.tool_functions = {}
+        self.on_before_tool_calls: Callable[[List[ToolCall]], Awaitable[None]] = None
 
     def compose_messages(self, context_id: str, text: str) -> List[dict]:
         messages = []
@@ -48,7 +56,8 @@ class GeminiService(LLMService):
 
     def update_context(self, context_id: str, request_text: str, response_text: str):
         messages = self.contexts.get(context_id, [])
-        messages.append({"role": "user", "parts": [{"text": request_text}]})
+        if len(messages) == 0 or "function_response" not in messages[-1]["parts"][0]:
+            messages.append({"role": "user", "parts": [{"text": request_text}]})
         messages.append({"role": "model", "parts": [{"text": response_text}]})
         self.contexts[context_id] = messages
 
@@ -59,12 +68,64 @@ class GeminiService(LLMService):
             pass
         logger.info("Gemini client initialized.")
 
+    def register_tool(self, tool_function: callable):
+        self.tools.append(tool_function)
+        self.tool_functions[tool_function.__name__] = tool_function
+
     async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
         stream_resp = await self.gemini_client.generate_content_async(
             contents=messages,
+            tools=self.tools if self.tools else None,
             stream=True
         )
 
+        tool_calls: List[ToolCall] = []
         async for chunk in stream_resp:
-            if content := chunk.candidates[0].content.parts[0].text:
-                yield content
+            for part in chunk.candidates[0].content.parts:
+                if content := part.text:
+                    yield content
+                elif part.function_call:
+                    tool_calls.append(ToolCall(part.function_call.name, dict(part.function_call.args)))
+
+        if tool_calls:
+            if context_id not in self.contexts:
+                self.contexts[context_id] = []
+
+            # Add user message to context
+            if "function_response" not in messages[-1]["parts"][0]:
+                self.contexts[context_id].append(messages[-1])
+
+            # Do something before tool calls (e.g. say to user that it will take a long time)
+            if self.on_before_tool_calls:
+                await self.on_before_tool_calls(tool_calls)
+
+            # NOTE: Gemini 2.0 Flash doesn't return multiple tools at once for now (2025-01-07), but it's not explicitly documented.
+            #       Multiple tools will be called sequentially: user -(llm)-> function_call -> function_response -(llm)-> function_call -> function_response -(llm)-> assistant
+            # Execute tools
+            for tc in tool_calls:
+                tool_result = await self.tool_functions[tc.name](**(tc.arguments))
+
+                messages.append({
+                    "role": "model",
+                    "parts": [{
+                        "function_call": {
+                            "name": tc.name,
+                            "args": tc.arguments
+                        }
+                    }]
+                })
+                self.contexts[context_id].append(messages[-1])
+
+                messages.append({
+                    "role": "user",
+                    "parts": [{
+                        "function_response": {
+                            "name": tc.name,
+                            "response": tool_result
+                        }
+                    }]
+                })
+                self.contexts[context_id].append(messages[-1])
+
+            async for chunk in self.get_llm_stream_response(context_id, messages):
+                yield chunk
