@@ -1,4 +1,6 @@
+import json
 import os
+from typing import Any, Dict
 import pytest
 from litests.llm.litellm import LiteLLMService
 
@@ -114,3 +116,71 @@ async def test_litellm_service_cot():
     messages = service.contexts[context_id]
     assert any(m["role"] == "user" for m in messages), "User message not found in context."
     assert any(m["role"] == "assistant" for m in messages), "Assistant message not found in context."
+
+
+@pytest.mark.asyncio
+async def test_litellm_service_tool_calls():
+    """
+    Test LiteLLMService with a registered tool.
+    The conversation might trigger the tool call, then the tool's result is fed back.
+    This is just an example. The actual trigger depends on the model response.
+    """
+    service = LiteLLMService(
+        api_key=CLAUDE_API_KEY,
+        system_prompt="You can call a tool to solve math problems if necessary.",
+        model=MODEL,
+        temperature=0.5,
+    )
+    context_id = "test_context_tool"
+
+    # Tool
+    async def solve_math(problem: str) -> Dict[str, Any]:
+        """
+        Tool function example: parse the problem and return a result.
+        """
+        if problem.strip() == "1+1":
+            return {"answer": 2}
+        else:
+            return {"answer": "unknown"}
+
+    # Register tool
+    tool_spec = {
+        "type": "function",
+        "function": {
+            "name": "solve_math",
+            "description": "Solve simple math problems",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "problem": {"type": "string"}
+                },
+                "required": ["problem"]
+            }
+        }
+    }
+    service.register_tool(tool_spec, solve_math)
+
+    user_message = "次の問題を解いて: 1+1"
+    collected_text = []
+
+    async for resp in service.chat_stream(context_id, user_message):
+        collected_text.append(resp.text)
+
+    # Check context
+    messages = service.contexts[context_id]
+    assert len(messages) == 4
+
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == user_message
+
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["tool_calls"] is not None
+    assert messages[1]["tool_calls"][0]["function"]["name"] == "solve_math"
+    tool_call_id = messages[1]["tool_calls"][0]["id"]
+
+    assert messages[2]["role"] == "tool"
+    assert messages[2]["tool_call_id"] == tool_call_id
+    assert messages[2]["content"] == json.dumps({"answer": 2})
+
+    assert messages[3]["role"] == "assistant"
+    assert "2" in messages[3]["content"]

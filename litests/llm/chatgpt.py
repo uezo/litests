@@ -41,7 +41,7 @@ class ChatGPTService(LLMService):
         self.contexts: List[Dict[str, List]] = {}
         self.tools = []
         self.tool_functions = {}
-        self.on_before_tool_calls: Callable[[List[ToolCall]], Awaitable[None]]
+        self.on_before_tool_calls: Callable[[List[ToolCall]], Awaitable[None]] = None
 
     def compose_messages(self, context_id: str, text: str) -> List[dict]:
         messages = []
@@ -85,10 +85,12 @@ class ChatGPTService(LLMService):
                 yield content
 
         if tool_calls:
-            # Add user message to context
             if context_id not in self.contexts:
                 self.contexts[context_id] = []
-            self.contexts[context_id].append(messages[-1])
+            
+            # Add user message to context
+            if messages[-1]["role"] != "tool":
+                self.contexts[context_id].append(messages[-1])
 
             # Do something before tool calls (e.g. say to user that it will take a long time)
             if self.on_before_tool_calls:
