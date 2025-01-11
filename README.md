@@ -43,7 +43,7 @@ async def quick_start_main():
         debug=True
     )
 
-    await start_with_pyaudio(sts.vad)
+    await start_with_pyaudio("session_id", sts.vad)
 
 asyncio.run(quick_start_main())
 ```
