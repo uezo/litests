@@ -48,7 +48,7 @@ class DifyService(LLMService):
             )
         )
 
-    def compose_messages(self, context_id: str, text: str) -> List[dict]:
+    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
         if self.make_inputs:
             inputs = self.make_inputs(context_id, text)
         else:
@@ -63,9 +63,10 @@ class DifyService(LLMService):
             "conversation_id": self.conversation_ids.get(context_id, "")
         }]
 
-    def update_context(self, context_id: str, request_text: str, response_text: str):
+    async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
         # Context is managed at Dify server
         pass
+
 
     async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
         headers = {

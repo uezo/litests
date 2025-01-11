@@ -6,6 +6,7 @@ logger = getLogger(__name__)
 
 
 async def start_with_pyaudio(
+    session_id: str,
     vad: StandardSpeechDetector,
     sample_rate: int = 16000,
     channels: int = 1,
@@ -32,16 +33,17 @@ async def start_with_pyaudio(
         data = await loop.run_in_executor(None, pyaudio_stream.read, chunk_size)
         if not data:
             break
-        await vad.process_samples(data)
+        await vad.process_samples(data, session_id)
         await asyncio.sleep(0.0001)
 
     # Finalize
-    vad.delete_session(vad.DEFAULT_SESSION_ID)
+    vad.delete_session(session_id)
 
     logger.info("LiteSTS finish listening. (pyaudio)")
 
 
 async def start_with_sounddevice(
+    session_id: str,
     vad: StandardSpeechDetector,
     sample_rate: int = 16000,
     channels: int = 1,
@@ -73,10 +75,10 @@ async def start_with_sounddevice(
             break
 
         audio_bytes = numpy.int16(data * 32767).tobytes()
-        await vad.process_samples(audio_bytes)
+        await vad.process_samples(audio_bytes, session_id)
         await asyncio.sleep(0.0001)
 
     # Finalize
-    vad.delete_session(vad.DEFAULT_SESSION_ID)
+    vad.delete_session(session_id)
 
     logger.info("LiteSTS finish listening. (sounddevice)")
