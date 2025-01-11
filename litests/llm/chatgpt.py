@@ -51,7 +51,7 @@ class ChatGPTService(LLMService):
 
         # Extract the history starting from the first message where the role is 'user'
         histories = await self.context_manager.get_histories(context_id)
-        while histories and histories["role"] != "user":
+        while histories and histories[0]["role"] != "user":
             histories.pop(0)
         messages.extend(histories)
 
