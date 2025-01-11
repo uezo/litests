@@ -27,8 +27,6 @@ class RecordingSession:
 
 
 class StandardSpeechDetector(SpeechDetector):
-    DEFAULT_SESSION_ID = "DEFAULT_SESSION"
-
     def __init__(
         self,
         *,
@@ -74,7 +72,7 @@ class StandardSpeechDetector(SpeechDetector):
         except Exception as ex:
             logger.error(f"Error in task for session {session_id}: {ex}", exc_info=True)
 
-    async def process_samples(self, samples: bytes, session_id: str = DEFAULT_SESSION_ID):
+    async def process_samples(self, samples: bytes, session_id: str):
         if self.to_linear16:
             samples = self.to_linear16(samples)
 
@@ -138,7 +136,7 @@ class StandardSpeechDetector(SpeechDetector):
                     logger.info(f"Recording too long: {session.record_duration} sec")
                 session.reset()
 
-    async def process_stream(self, input_stream: AsyncGenerator[bytes, None], session_id: str = DEFAULT_SESSION_ID):
+    async def process_stream(self, input_stream: AsyncGenerator[bytes, None], session_id: str):
         logger.info("LiteSTS start processing stream.")
 
         async for data in input_stream:
