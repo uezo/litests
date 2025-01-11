@@ -2,7 +2,8 @@ import json
 from logging import getLogger
 from typing import AsyncGenerator, Awaitable, Callable, Dict, List
 from anthropic import AsyncAnthropic
-from . import LLMService
+from . import LLMService, ContextManager
+
 
 logger = getLogger(__name__)
 
@@ -27,7 +28,8 @@ class ClaudeService(LLMService):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        skip_before: str = None
+        skip_before: str = None,
+        context_manager: ContextManager = None
     ):
         super().__init__(
             system_prompt=system_prompt,
@@ -36,30 +38,33 @@ class ClaudeService(LLMService):
             split_chars=split_chars,
             option_split_chars=option_split_chars,
             option_split_threshold=option_split_threshold,
-            skip_before=skip_before
+            skip_before=skip_before,
+            context_manager=context_manager
         )
         self.anthropic_client = AsyncAnthropic(
             api_key=anthropic_api_key,
             base_url=base_url
         )
         self.max_tokens = max_tokens
-        self.contexts: List[Dict[str, List]] = {}
         self.tools = []
         self.tool_functions = {}
         self.on_before_tool_calls: Callable[[List[ToolCall]], Awaitable[None]] = None
 
-    def compose_messages(self, context_id: str, text: str) -> List[dict]:
+    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
         messages = []
-        messages.extend(self.contexts.get(context_id, []))
+
+        # Extract the history starting from the first message where the role is 'user'
+        histories = await self.context_manager.get_histories(context_id)
+        while histories and histories["role"] != "user":
+            histories.pop(0)
+        messages.extend(histories)
+
         messages.append({"role": "user", "content": [{"type": "text", "text": text}]})
         return messages
 
-    def update_context(self, context_id: str, request_text: str, response_text: str):
-        messages = self.contexts.get(context_id, [])
-        if len(messages) == 0 or messages[-1]["content"][0]["type"] != "tool_result":
-            messages.append({"role": "user", "content": [{"type": "text", "text": request_text}]})
+    async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
         messages.append({"role": "assistant", "content": [{"type": "text", "text": response_text}]})
-        self.contexts[context_id] = messages
+        await self.context_manager.add_histories(context_id, messages, "claude")
 
     def register_tool(self, tool_spec: dict, tool_function: callable):
         self.tools.append(tool_spec)
@@ -88,13 +93,6 @@ class ClaudeService(LLMService):
                         tool_calls[-1].arguments += chunk.delta.partial_json
 
         if tool_calls:
-            if context_id not in self.contexts:
-                self.contexts[context_id] = []
-
-            # Add user message to context
-            if messages[-1]["content"][0]["type"] != "tool_result":
-                self.contexts[context_id].append(messages[-1])
-
             # Do something before tool calls (e.g. say to user that it will take a long time)
             if self.on_before_tool_calls:
                 await self.on_before_tool_calls(tool_calls)
@@ -115,7 +113,6 @@ class ClaudeService(LLMService):
                         "input": arguments_json
                     }]
                 })
-                self.contexts[context_id].append(messages[-1])
 
                 messages.append({
                     "role": "user",
@@ -125,7 +122,6 @@ class ClaudeService(LLMService):
                         "content": json.dumps(tool_result)
                     }]
                 })
-                self.contexts[context_id].append(messages[-1])
 
             async for chunk in self.get_llm_stream_response(context_id, messages):
                 yield chunk
