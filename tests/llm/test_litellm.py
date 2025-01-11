@@ -1,6 +1,7 @@
 import json
 import os
 from typing import Any, Dict
+from uuid import uuid4
 import pytest
 from litests.llm.litellm import LiteLLMService
 
@@ -47,7 +48,7 @@ async def test_litellm_service_simple():
         model=MODEL,
         temperature=0.5
     )
-    context_id = "test_context"
+    context_id = f"test_context_{uuid4()}"
 
     user_message = "君が大切にしていたプリンは、私が勝手に食べておいた。"
 
@@ -67,8 +68,7 @@ async def test_litellm_service_simple():
     assert "[face:Angry]" not in full_voice, "Control tag was not removed from voice_text."
 
     # Check the context
-    assert context_id in service.contexts
-    messages = service.contexts[context_id]
+    messages = await service.context_manager.get_histories(context_id)
     assert any(m["role"] == "user" for m in messages), "User message not found in context."
     assert any(m["role"] == "assistant" for m in messages), "Assistant message not found in context."
 
@@ -86,7 +86,7 @@ async def test_litellm_service_cot():
         temperature=0.5,
         skip_before="<answer>"
     )
-    context_id = "test_context"
+    context_id = f"test_context_cot_{uuid4()}"
 
     user_message = "君が大切にしていたプリンは、私が勝手に食べておいた。"
 
@@ -112,8 +112,7 @@ async def test_litellm_service_cot():
     assert "</answer>" not in full_voice, "Answer tag closing was not removed from voice_text."
 
     # Check the context
-    assert context_id in service.contexts
-    messages = service.contexts[context_id]
+    messages = await service.context_manager.get_histories(context_id)
     assert any(m["role"] == "user" for m in messages), "User message not found in context."
     assert any(m["role"] == "assistant" for m in messages), "Assistant message not found in context."
 
@@ -131,7 +130,7 @@ async def test_litellm_service_tool_calls():
         model=MODEL,
         temperature=0.5,
     )
-    context_id = "test_context_tool"
+    context_id = f"test_context_tool_{uuid4()}"
 
     # Tool
     async def solve_math(problem: str) -> Dict[str, Any]:
@@ -167,7 +166,7 @@ async def test_litellm_service_tool_calls():
         collected_text.append(resp.text)
 
     # Check context
-    messages = service.contexts[context_id]
+    messages = await service.context_manager.get_histories(context_id)
     assert len(messages) == 4
 
     assert messages[0]["role"] == "user"

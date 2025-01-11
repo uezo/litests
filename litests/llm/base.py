@@ -1,10 +1,139 @@
 from abc import ABC, abstractmethod
 import asyncio
+import json
 import logging
+from datetime import datetime, timedelta, timezone
 import re
-from typing import AsyncGenerator, List
+import sqlite3
+from typing import AsyncGenerator, List, Dict
 
 logger = logging.getLogger(__name__)
+
+
+import sqlite3
+import json
+import logging
+from datetime import datetime, timezone, timedelta
+from abc import ABC, abstractmethod
+from typing import List, Dict
+
+logger = logging.getLogger(__name__)
+
+
+class ContextManager(ABC):
+    @abstractmethod
+    async def get_histories(self, context_id: str, limit: int = 100) -> List[Dict]:
+        pass
+
+    @abstractmethod
+    async def add_histories(self, context_id: str, data_list: List[Dict], context_schema: str = None):
+        pass
+
+
+class SQLiteContextManager(ContextManager):
+    def __init__(self, db_path="context.db", context_timeout=3600):
+        self.db_path = db_path
+        self.context_timeout = context_timeout
+        self.init_db()
+
+    def init_db(self):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            with conn:
+                # Create table if not exists
+                # (Primary key 'id' automatically gets indexed by SQLite)
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS chat_histories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at TIMESTAMP NOT NULL,
+                        context_id TEXT NOT NULL,
+                        serialized_data JSON NOT NULL,
+                        context_schema TEXT
+                    )
+                    """
+                )
+
+                # Create an index to speed up filtering queries by context_id and created_at
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_chat_histories_context_id_created_at
+                    ON chat_histories (context_id, created_at)
+                    """
+                )
+
+        except Exception as ex:
+            logger.error(f"Error at init_db: {ex}")
+        finally:
+            conn.close()
+
+    async def get_histories(self, context_id: str, limit: int = 100) -> List[Dict]:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            # Calculate cutoff time to exclude old records
+            cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=self.context_timeout)
+
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT serialized_data
+                FROM chat_histories
+                WHERE context_id = ?
+                  AND created_at >= ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (context_id, cutoff_time, limit),
+            )
+            rows = cursor.fetchall()
+
+            # Reverse the list so that the newest item is at the end (larger index)
+            rows.reverse()
+            results = [json.loads(row[0]) for row in rows]
+            return results
+
+        except Exception as ex:
+            logger.error(f"Error at get_histories: {ex}")
+            return []
+        finally:
+            conn.close()
+
+    async def add_histories(self, context_id: str, data_list: List[Dict], context_schema: str = None):
+        if not data_list:
+            # If the list is empty, do nothing
+            return
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            # Prepare INSERT statement
+            columns = ["created_at", "context_id", "serialized_data", "context_schema"]
+            placeholders = ["?"] * len(columns)
+            sql = f"""
+                INSERT INTO chat_histories ({', '.join(columns)}) 
+                VALUES ({', '.join(placeholders)})
+            """
+
+            now_utc = datetime.now(timezone.utc)
+            records = []
+            for data_item in data_list:
+                record = (
+                    now_utc,                        # created_at
+                    context_id,                     # context_id
+                    json.dumps(data_item, ensure_ascii=True),  # serialized_data
+                    context_schema,                 # context_schema
+                )
+                records.append(record)
+
+            # Execute many inserts in a single statement
+            conn.executemany(sql, records)
+            conn.commit()
+
+        except Exception as ex:
+            logger.error(f"Error at add_histories: {ex}")
+            conn.rollback()
+
+        finally:
+            conn.close()
 
 
 class LLMResponse:
@@ -23,7 +152,8 @@ class LLMService(ABC):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        skip_before: str = None
+        skip_before: str = None,
+        context_manager: ContextManager = None,
     ):
         self.system_prompt = system_prompt
         self.model = model
@@ -39,16 +169,17 @@ class LLMService(ABC):
                 self.split_patterns.append(f"{re.escape(char)}\s?")
         self.option_split_chars_regex = f"({'|'.join(self.split_patterns)})\s*(?!.*({'|'.join(self.split_patterns)}))"
         self.skip_voice_before = skip_before
+        self.context_manager = context_manager or SQLiteContextManager()
 
     def replace_last_option_split_char(self, original):
         return re.sub(self.option_split_chars_regex, r"\1|", original)
 
     @abstractmethod
-    def compose_messages(self, context_id: str, text: str) -> List[dict]:
+    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
         pass
 
     @abstractmethod
-    def update_context(self, context_id: str, request_text: str, response_text: str):
+    async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
         pass
 
     @abstractmethod
@@ -66,7 +197,8 @@ class LLMService(ABC):
 
     async def chat_stream(self, context_id: str, text: str) -> AsyncGenerator[LLMResponse, None]:
         logger.info(f"User: {text}")
-        messages = self.compose_messages(context_id, text)
+        messages = await self.compose_messages(context_id, text)
+        message_length_at_start = len(messages) - 1
 
         stream_buffer = ""
         response_text = ""
@@ -100,4 +232,5 @@ class LLMService(ABC):
             response_text += stream_buffer
 
         logger.info(f"AI: {response_text}")
-        self.update_context(context_id, text, response_text)
+        if len(messages) > message_length_at_start:
+            await self.update_context(context_id, messages[message_length_at_start - len(messages):], response_text)
