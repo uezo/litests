@@ -148,7 +148,7 @@ class LiteSTS:
                         performance.llm_first_voice_chunk_time = time() - start_time
                 performance.llm_time = time() - start_time
 
-                audio_chunk = await self.tts.synthesize(llm_stream_chunk.voice_text)
+                audio_chunk = await self.tts.synthesize(llm_stream_chunk.voice_text, {"styled_text": llm_stream_chunk.text})
 
                 # TTS performance
                 if audio_chunk:
