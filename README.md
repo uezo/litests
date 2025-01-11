@@ -168,6 +168,50 @@ chatgpt.register_tool({
 ```
 
 
+## 🥰 Voice Style
+
+You can apply a specific voice style to synthesized speech when certain keywords are included in the response.
+
+To use this feature, register the keywords and their corresponding speaker names or styles for each TTS component in a `style_mapper`.
+
+```python
+# VOICEVOX / AivisSpeech
+from litests.tts.voicevox import VoicevoxSpeechSynthesizer
+voicevox_tts = VoicevoxSpeechSynthesizer(
+    # AivisSpeech
+    base_url="http://127.0.0.1:10101",
+    # Base speaker name for the neutral style (Anneli / Neutral)
+    speaker=888753761,
+    # Define style mapper (Keyword in response : styled speaker)
+    style_mapper={
+        "[face:Joy]": "888753764",
+        "[face:Angry]": "888753765",
+        "[face:Sorrow]": "888753765",
+        "[face:Fun]": "888753762",
+        "[face:Surprised]": "888753762"
+    },
+    debug=True
+)
+
+# SpeechGateway
+from litests.tts.speech_gateway import SpeechGatewaySpeechSynthesizer
+tts = SpeechGatewaySpeechSynthesizer(
+    tts_url="http://127.0.0.1:8000/tts",
+    service_name="sbv2",
+    speaker="0-0",
+    # Define style mapper (Keyword in response : voice style)
+    style_mapper = {
+        "[face:Joy]": "joy",
+        "[face:Angry]": "angry",
+        "[face:Sorrow]": "sorrow",
+        "[face:Fun]": "fun",
+        "[face:Surprised]": "surprised",
+    },
+    debug=True
+)
+```
+
+
 ## 🧩 Make custom modules
 
 By creating modules that inherit the interfaces for VAD, STT, LLM, TTS, and the Response Handler, you can integrate them into the pipeline. Below, only the interfaces are introduced; for implementation details, please refer to the existing modules included in the repository.
