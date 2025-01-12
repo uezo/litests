@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 import re
 import sqlite3
-from typing import AsyncGenerator, List, Dict
+from typing import AsyncGenerator, List, Dict, Optional, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +152,10 @@ class LLMService(ABC):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
+        request_filter: Optional[Callable[[str], str]] = None,
         skip_before: str = None,
         context_manager: ContextManager = None,
+        debug: bool = False
     ):
         self.system_prompt = system_prompt
         self.model = model
@@ -168,8 +170,10 @@ class LLMService(ABC):
             else:
                 self.split_patterns.append(f"{re.escape(char)}\s?")
         self.option_split_chars_regex = f"({'|'.join(self.split_patterns)})\s*(?!.*({'|'.join(self.split_patterns)}))"
+        self.request_filter = request_filter
         self.skip_voice_before = skip_before
         self.context_manager = context_manager or SQLiteContextManager()
+        self.debug = debug
 
     def replace_last_option_split_char(self, original):
         return re.sub(self.option_split_chars_regex, r"\1|", original)
@@ -197,6 +201,10 @@ class LLMService(ABC):
 
     async def chat_stream(self, context_id: str, text: str) -> AsyncGenerator[LLMResponse, None]:
         logger.info(f"User: {text}")
+        if self.request_filter:
+            text = self.request_filter(text)
+            logger.info(f"User(Filtered): {text}")
+
         messages = await self.compose_messages(context_id, text)
         message_length_at_start = len(messages) - 1
 
