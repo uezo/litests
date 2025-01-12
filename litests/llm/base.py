@@ -70,21 +70,27 @@ class SQLiteContextManager(ContextManager):
     async def get_histories(self, context_id: str, limit: int = 100) -> List[Dict]:
         conn = sqlite3.connect(self.db_path)
         try:
-            # Calculate cutoff time to exclude old records
-            cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=self.context_timeout)
+            sql = """
+            SELECT serialized_data
+            FROM chat_histories
+            WHERE context_id = ?
+            """
+            params = [context_id]
+
+            if self.context_timeout > 0:
+                # Cutoff time to exclude old records
+                sql += " AND created_at >= ?"
+                cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=self.context_timeout)
+                params.append(cutoff_time)
+
+            sql += " ORDER BY id DESC"
+
+            if limit > 0:
+                sql += " LIMIT ?"
+                params.append(limit)
 
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT serialized_data
-                FROM chat_histories
-                WHERE context_id = ?
-                  AND created_at >= ?
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (context_id, cutoff_time, limit),
-            )
+            cursor.execute(sql, tuple(params))
             rows = cursor.fetchall()
 
             # Reverse the list so that the newest item is at the end (larger index)
@@ -95,6 +101,7 @@ class SQLiteContextManager(ContextManager):
         except Exception as ex:
             logger.error(f"Error at get_histories: {ex}")
             return []
+
         finally:
             conn.close()
 
