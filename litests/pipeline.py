@@ -74,7 +74,8 @@ class LiteSTS:
             openai_api_key=llm_openai_api_key,
             base_url=llm_base_url,
             model=llm_model,
-            system_prompt=llm_system_prompt
+            system_prompt=llm_system_prompt,
+            debug=debug
         )
 
         # Text-to-Speech

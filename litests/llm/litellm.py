@@ -1,6 +1,6 @@
 import json
 from logging import getLogger
-from typing import AsyncGenerator, Awaitable, Callable, Dict, List
+from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional
 from litellm import acompletion
 from . import LLMService, ContextManager
 
@@ -27,8 +27,10 @@ class LiteLLMService(LLMService):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
+        request_filter: Optional[Callable[[str], str]] = None,
         skip_before: str = None,
-        context_manager: ContextManager = None
+        context_manager: ContextManager = None,
+        debug: bool = False
     ):
         super().__init__(
             system_prompt=system_prompt,
@@ -37,8 +39,10 @@ class LiteLLMService(LLMService):
             split_chars=split_chars,
             option_split_chars=option_split_chars,
             option_split_threshold=option_split_threshold,
+            request_filter=request_filter,
             skip_before=skip_before,
-            context_manager=context_manager
+            context_manager=context_manager,
+            debug=debug
         )
         self.api_key = api_key
         self.base_url = base_url
