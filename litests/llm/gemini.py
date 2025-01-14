@@ -1,15 +1,9 @@
 from logging import getLogger
-from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List
 import google.generativeai as genai
-from . import LLMService, ContextManager
+from . import LLMService, ToolCall, ContextManager
 
 logger = getLogger(__name__)
-
-
-class ToolCall:
-    def __init__(self, name: str, arguments: dict):
-        self.name = name
-        self.arguments = arguments
 
 
 class GeminiService(LLMService):
@@ -23,7 +17,6 @@ class GeminiService(LLMService):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        request_filter: Optional[Callable[[str], str]] = None,
         skip_before: str = None,
         context_manager: ContextManager = None,
         debug: bool = False
@@ -35,7 +28,6 @@ class GeminiService(LLMService):
             split_chars=split_chars,
             option_split_chars=option_split_chars,
             option_split_threshold=option_split_threshold,
-            request_filter=request_filter,
             skip_before=skip_before,
             context_manager=context_manager,
             debug=debug
@@ -49,9 +41,6 @@ class GeminiService(LLMService):
             generation_config=generation_config,
             system_instruction=system_prompt
         )
-        self.tools: List[genai.types.Tool] = []
-        self.tool_functions = {}
-        self.on_before_tool_calls: Callable[[List[ToolCall]], Awaitable[None]] = None
 
     async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
         messages = []
@@ -80,6 +69,11 @@ class GeminiService(LLMService):
         self.tools.append(tool_function)
         self.tool_functions[tool_function.__name__] = tool_function
 
+    def tool(self, func):
+        self.tools.append(func)
+        self.tool_functions[func.__name__] = func
+        return func
+
     async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
         stream_resp = await self.gemini_client.generate_content_async(
             contents=messages,
@@ -93,12 +87,11 @@ class GeminiService(LLMService):
                 if content := part.text:
                     yield content
                 elif part.function_call:
-                    tool_calls.append(ToolCall(part.function_call.name, dict(part.function_call.args)))
+                    tool_calls.append(ToolCall("", part.function_call.name, dict(part.function_call.args)))
 
         if tool_calls:
             # Do something before tool calls (e.g. say to user that it will take a long time)
-            if self.on_before_tool_calls:
-                await self.on_before_tool_calls(tool_calls)
+            await self._on_before_tool_calls(tool_calls)
 
             # NOTE: Gemini 2.0 Flash doesn't return multiple tools at once for now (2025-01-07), but it's not explicitly documented.
             #       Multiple tools will be called sequentially: user -(llm)-> function_call -> function_response -(llm)-> function_call -> function_response -(llm)-> assistant

@@ -2,7 +2,7 @@ import os
 from typing import Any, Dict
 from uuid import uuid4
 import pytest
-from litests.llm.gemini import GeminiService
+from litests.llm.gemini import GeminiService, ToolCall
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL = "gemini-2.0-flash-exp"
@@ -117,7 +117,7 @@ async def test_gemini_service_cot():
 
 
 @pytest.mark.asyncio
-async def test_litellm_service_tool_calls():
+async def test_gemini_service_tool_calls():
     """
     Test GeminiService with a registered tool.
     The conversation might trigger the tool call, then the tool's result is fed back.
@@ -132,6 +132,7 @@ async def test_litellm_service_tool_calls():
     context_id = f"test_context_tool_{uuid4()}"
 
     # Tool
+    @service.tool
     async def solve_math(problem: str) -> Dict[str, Any]:
         """
         Tool function example: parse the problem and return a result.
@@ -141,7 +142,9 @@ async def test_litellm_service_tool_calls():
         else:
             return {"answer": "unknown"}
 
-    service.register_tool(solve_math)
+    @service.on_before_tool_calls
+    async def on_before_tool_calls(tool_calls: list[ToolCall]):
+        assert len(tool_calls) > 0
 
     user_message = "次の問題を解いて: 1+1"
     collected_text = []

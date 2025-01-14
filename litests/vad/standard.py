@@ -37,7 +37,6 @@ class StandardSpeechDetector(SpeechDetector):
         sample_rate: int = 16000,
         channels: int = 1,
         preroll_buffer_count: int = 5,
-        on_speech_detected: Optional[Callable[[bytes, float, str], Awaitable[None]]] = None,
         to_linear16: Optional[Callable[[bytes], bytes]] = None,
         debug: bool = False
     ):
@@ -50,9 +49,7 @@ class StandardSpeechDetector(SpeechDetector):
         self.channels = channels
         self.debug = debug
         self.preroll_buffer_count = preroll_buffer_count
-        self.on_speech_detected = on_speech_detected
         self.to_linear16 = to_linear16
-
         self.should_mute = lambda: False
         self.recording_sessions: Dict[str, RecordingSession] = {}
 
@@ -68,7 +65,7 @@ class StandardSpeechDetector(SpeechDetector):
 
     async def execute_on_speech_detected(self, recorded_data: bytes, recorded_duration: float, session_id: str):
         try:
-            await self.on_speech_detected(recorded_data, recorded_duration, session_id)
+            await self._on_speech_detected(recorded_data, recorded_duration, session_id)
         except Exception as ex:
             logger.error(f"Error in task for session {session_id}: {ex}", exc_info=True)
 
@@ -126,9 +123,8 @@ class StandardSpeechDetector(SpeechDetector):
                 else:
                     if self.debug:
                         logger.info(f"Recording finished: {recorded_duration} sec")
-                    if self.on_speech_detected:
-                        recorded_data = bytes(session.buffer)
-                        asyncio.create_task(self.execute_on_speech_detected(recorded_data, recorded_duration, session.session_id))
+                    recorded_data = bytes(session.buffer)
+                    asyncio.create_task(self.execute_on_speech_detected(recorded_data, recorded_duration, session.session_id))
                 session.reset()
 
             elif session.record_duration >= self.max_duration:

@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 import re
 import sqlite3
-from typing import AsyncGenerator, List, Dict, Optional, Callable
+from typing import AsyncGenerator, List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +143,13 @@ class SQLiteContextManager(ContextManager):
             conn.close()
 
 
+class ToolCall:
+    def __init__(self, id: str = None, name: str = None, arguments: any = None):
+        self.id = id
+        self.name = name
+        self.arguments = arguments
+
+
 class LLMResponse:
     def __init__(self, text: str = None, voice_text: str = None):
         self.text = text
@@ -159,7 +166,6 @@ class LLMService(ABC):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        request_filter: Optional[Callable[[str], str]] = None,
         skip_before: str = None,
         context_manager: ContextManager = None,
         debug: bool = False
@@ -177,10 +183,33 @@ class LLMService(ABC):
             else:
                 self.split_patterns.append(f"{re.escape(char)}\s?")
         self.option_split_chars_regex = f"({'|'.join(self.split_patterns)})\s*(?!.*({'|'.join(self.split_patterns)}))"
-        self.request_filter = request_filter
+        self._request_filter = self.request_filter_default
         self.skip_voice_before = skip_before
+        self.tools = []
+        self.tool_functions = {}
+        self._on_before_tool_calls = self.on_before_tool_calls_default
         self.context_manager = context_manager or SQLiteContextManager()
         self.debug = debug
+
+    # Decorators
+    def request_filter(self, func):
+        self._request_filter = func
+        return func
+
+    def request_filter_default(self, text: str) -> str:
+        return text
+
+    def tool(self, spec):
+        def decorator(func):
+            return func
+        return decorator
+
+    def on_before_tool_calls(self, func):
+        self._on_before_tool_calls = func
+        return func
+
+    async def on_before_tool_calls_default(self, tool_calls: List[ToolCall]):
+        pass
 
     def replace_last_option_split_char(self, original):
         return re.sub(self.option_split_chars_regex, r"\1|", original)
@@ -208,9 +237,8 @@ class LLMService(ABC):
 
     async def chat_stream(self, context_id: str, text: str) -> AsyncGenerator[LLMResponse, None]:
         logger.info(f"User: {text}")
-        if self.request_filter:
-            text = self.request_filter(text)
-            logger.info(f"User(Filtered): {text}")
+        text = self._request_filter(text)
+        logger.info(f"User(Filtered): {text}")
 
         messages = await self.compose_messages(context_id, text)
         message_length_at_start = len(messages) - 1

@@ -1,6 +1,6 @@
 from logging import getLogger
 import json
-from typing import AsyncGenerator, Dict, List, Optional, Callable
+from typing import AsyncGenerator, Dict, List
 import httpx
 from . import LLMService
 
@@ -19,7 +19,6 @@ class DifyService(LLMService):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        request_filter: Optional[Callable[[str], str]] = None,
         skip_before: str = None,
         max_connections: int = 100,
         max_keepalive_connections: int = 20,
@@ -32,7 +31,6 @@ class DifyService(LLMService):
             split_chars=split_chars,
             option_split_chars=option_split_chars,
             option_split_threshold=option_split_threshold,
-            request_filter=request_filter,
             skip_before=skip_before
         )
         self.conversation_ids: Dict[str, str] = {}
