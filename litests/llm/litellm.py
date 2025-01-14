@@ -1,17 +1,10 @@
 import json
 from logging import getLogger
-from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List
 from litellm import acompletion
-from . import LLMService, ContextManager
+from . import LLMService, ToolCall, ContextManager
 
 logger = getLogger(__name__)
-
-
-class ToolCall:
-    def __init__(self, id: str, name: str):
-        self.id = id
-        self.name = name
-        self.arguments = ""
 
 
 class LiteLLMService(LLMService):
@@ -27,7 +20,6 @@ class LiteLLMService(LLMService):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        request_filter: Optional[Callable[[str], str]] = None,
         skip_before: str = None,
         context_manager: ContextManager = None,
         debug: bool = False
@@ -39,7 +31,6 @@ class LiteLLMService(LLMService):
             split_chars=split_chars,
             option_split_chars=option_split_chars,
             option_split_threshold=option_split_threshold,
-            request_filter=request_filter,
             skip_before=skip_before,
             context_manager=context_manager,
             debug=debug
@@ -48,9 +39,6 @@ class LiteLLMService(LLMService):
         self.base_url = base_url
         self.model = model
         self.system_prompt_by_user_prompt = system_prompt_by_user_prompt
-        self.tools = []
-        self.tool_functions = {}
-        self.on_before_tool_calls: Callable[[List[ToolCall]], Awaitable[None]] = None
 
     async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
         messages = []
@@ -74,10 +62,13 @@ class LiteLLMService(LLMService):
         messages.append({"role": "assistant", "content": response_text})
         await self.context_manager.add_histories(context_id, messages, "chatgpt")
 
-    def register_tool(self, tool_spec: dict, tool_function: callable):
-        tool_name = tool_spec["function"]["name"]
-        self.tools.append(tool_spec)
-        self.tool_functions[tool_name] = tool_function
+    def tool(self, spec: Dict):
+        def decorator(func):
+            tool_name = spec["function"]["name"]
+            self.tools.append(spec)
+            self.tool_functions[tool_name] = func
+            return func
+        return decorator
 
     async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
         stream_resp = await acompletion(
@@ -98,14 +89,13 @@ class LiteLLMService(LLMService):
             elif chunk.choices[0].delta.tool_calls:
                 t = chunk.choices[0].delta.tool_calls[0]
                 if t.id:
-                    tool_calls.append(ToolCall(t.id, t.function.name))
+                    tool_calls.append(ToolCall(t.id, t.function.name, ""))
                 if t.function.arguments:
                     tool_calls[-1].arguments += t.function.arguments
 
         if tool_calls:
             # Do something before tool calls (e.g. say to user that it will take a long time)
-            if self.on_before_tool_calls:
-                await self.on_before_tool_calls(tool_calls)
+            await self._on_before_tool_calls(tool_calls)
 
             # Execute tools
             for tc in tool_calls:

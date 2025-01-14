@@ -3,7 +3,7 @@ import os
 from typing import Any, Dict
 from uuid import uuid4
 import pytest
-from litests.llm.litellm import LiteLLMService
+from litests.llm.litellm import LiteLLMService, ToolCall
 
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 MODEL = "anthropic/claude-3-5-sonnet-latest"
@@ -132,16 +132,6 @@ async def test_litellm_service_tool_calls():
     )
     context_id = f"test_context_tool_{uuid4()}"
 
-    # Tool
-    async def solve_math(problem: str) -> Dict[str, Any]:
-        """
-        Tool function example: parse the problem and return a result.
-        """
-        if problem.strip() == "1+1":
-            return {"answer": 2}
-        else:
-            return {"answer": "unknown"}
-
     # Register tool
     tool_spec = {
         "type": "function",
@@ -157,7 +147,20 @@ async def test_litellm_service_tool_calls():
             }
         }
     }
-    service.register_tool(tool_spec, solve_math)
+    @service.tool(tool_spec)
+    # Tool
+    async def solve_math(problem: str) -> Dict[str, Any]:
+        """
+        Tool function example: parse the problem and return a result.
+        """
+        if problem.strip() == "1+1":
+            return {"answer": 2}
+        else:
+            return {"answer": "unknown"}
+
+    @service.on_before_tool_calls
+    async def on_before_tool_calls(tool_calls: list[ToolCall]):
+        assert len(tool_calls) > 0
 
     user_message = "次の問題を解いて: 1+1"
     collected_text = []

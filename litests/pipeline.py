@@ -58,9 +58,9 @@ class LiteSTS:
             sample_rate=vad_sample_rate,
             debug=debug
         )
+        @vad.on_speech_detected
         async def on_speech_detected(data: bytes, recorded_duration: float, session_id: str):
             await self.invoke(STSRequest(context_id=session_id, audio_data=data, audio_duration=recorded_duration))
-        self.vad.on_speech_detected = on_speech_detected
 
         # Speech-to-Text
         self.stt = stt or GoogleSpeechRecognizer(
