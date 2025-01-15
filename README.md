@@ -21,6 +21,14 @@ You can install it with a single `pip` command. Since `PyAudio` internally uses 
 pip install git+https://github.com/uezo/litests
 ```
 
+If you use LiteSTS with your microphone on your local computer, install `PortAudio` and its binding `PyAudio` beforehand.
+
+```sh
+# Mac
+brew install portaudio
+pip install PyAudio
+```
+
 
 ## 🚀 Quick start
 
