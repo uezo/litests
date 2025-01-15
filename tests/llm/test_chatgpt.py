@@ -136,16 +136,6 @@ async def test_chatgpt_service_tool_calls():
     )
     context_id = f"test_tool_context_{uuid4()}"
 
-    # Tool
-    async def solve_math(problem: str) -> Dict[str, Any]:
-        """
-        Tool function example: parse the problem and return a result.
-        """
-        if problem.strip() == "1+1":
-            return {"answer": 2}
-        else:
-            return {"answer": "unknown"}
-
     # Register tool
     tool_spec = {
         "type": "function",
@@ -161,11 +151,19 @@ async def test_chatgpt_service_tool_calls():
             }
         }
     }
-    service.register_tool(tool_spec, solve_math)
+    @service.tool(tool_spec)
+    async def solve_math(problem: str) -> Dict[str, Any]:
+        """
+        Tool function example: parse the problem and return a result.
+        """
+        if problem.strip() == "1+1":
+            return {"answer": 2}
+        else:
+            return {"answer": "unknown"}
 
+    @service.on_before_tool_calls
     async def on_before_tool_calls(tool_calls: list[ToolCall]):
-        pass
-    service.on_before_tool_calls = on_before_tool_calls
+        assert len(tool_calls) > 0
 
     user_message = "次の問題を解いて: 1+1"
     collected_text = []

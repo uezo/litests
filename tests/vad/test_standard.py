@@ -15,17 +15,7 @@ def test_output_dir(tmp_path: Path):
 
 
 @pytest.fixture
-def on_speech_detected_factory(test_output_dir: Path):
-    async def on_speech_detected(recorded_data: bytes, recorded_duration: float, session_id: str):
-        output_file = test_output_dir / f"speech_{session_id}.pcm"
-        with open(output_file, "wb") as f:
-            f.write(recorded_data)
-
-    return on_speech_detected
-
-
-@pytest.fixture
-def detector(on_speech_detected_factory):
+def detector(test_output_dir):
     detector = StandardSpeechDetector(
         volume_db_threshold=-40.0,
         silence_duration_threshold=0.5,
@@ -34,9 +24,15 @@ def detector(on_speech_detected_factory):
         sample_rate=16000,
         channels=1,
         preroll_buffer_count=5,
-        on_speech_detected=on_speech_detected_factory,
         debug=True
     )
+
+    @detector.on_speech_detected
+    async def on_speech_detected(recorded_data: bytes, recorded_duration: float, session_id: str):
+        output_file = test_output_dir / f"speech_{session_id}.pcm"
+        with open(output_file, "wb") as f:
+            f.write(recorded_data)
+
     return detector
 
 

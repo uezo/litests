@@ -9,16 +9,24 @@ A super lightweight Speech-to-Speech framework with modular VAD, STT, LLM and TT
     - STT: Google, Azure and OpenAI
     - ChatGPT, Gemini, Claude. Plus, with support for LiteLLM and Dify, you can use any LLMs they support!
     - TTS: VOICEVOX / AivisSpeech, OpenAI, SpeechGateway (Yep, all the TTS supported by SpeechGateway, including Style-Bert-VITS2 and NijiVoice!)
-- **🥰 Rich expression**: In addition to voice, supports text-based information exchange, enabling rich expressions like facial expressions and motions on the front end. It also supports methods like Chain-of-Thought, allowing for maximum utilization of capabilities.
+- **🥰 Rich expression**: Supports text-based information exchange, enabling rich expressions like facial expressions and motions on the front end. Voice styles seamlessly align with facial expressions to enhance overall expressiveness. It also supports methods like Chain-of-Thought, allowing for maximum utilization of capabilities.
 - **🏎️ Super speed**: Speech synthesis and playback are performed in parallel with streaming responses from the LLM, enabling dramatically faster voice responses compared to simply connecting the components sequentially.
 
 
 ## 🎁 Installation
 
-You can install it with a single `pip` command. Since `PyAudio` internally uses `PortAudio`, you'll need to install it beforehand.
+You can install it with a single `pip` command:
 
 ```sh
 pip install git+https://github.com/uezo/litests
+```
+
+If you plan to use LiteSTS to handle microphone input or play audio on a local computer, make sure to install `PortAudio` and its Python binding, `PyAudio`, beforehand:
+
+```sh
+# Mac
+brew install portaudio
+pip install PyAudio
 ```
 
 
@@ -136,24 +144,19 @@ sts = litests.LiteSTS(
 
 ## ⚡️ Function Calling
 
-You can use Function Calling (Tool Call) by registering function specifications and their handlers with the `ChatGPTService` instance through `register_tool`, as shown below. Functions will be automatically invoked as needed.
+You can use Function Calling (Tool Call) by registering function specifications and their handlers through `tool` decorator, as shown below. Functions will be automatically invoked as needed.
 
 **NOTE**: Currently, only ChatGPT is supported.
 
 ```python
-# Instantiate ChatGPTService
-chatgpt = ChatGPTService(
+# Create LLM service
+llm = ChatGPTService(
     openai_api_key=OPENAI_API_KEY,
     system_prompt=SYSTEM_PROMPT
 )
 
-# Make function
-async def get_weather(location: str = None):
-    weather = await weather_api(location=location)
-    return weather  # {"weather": "clear", "temperature": 23.4}
-
-# Register spec and function
-chatgpt.register_tool({
+# Register tool
+weather_tool_spec = {
     "type": "function",
     "function": {
         "name": "get_weather",
@@ -164,8 +167,33 @@ chatgpt.register_tool({
             },
         },
     }
-}, get_weather)
+}
+@llm.tool(weather_tool_spec)    # NOTE: Gemini doesn't take spec as argument
+async def get_weather(location: str = None):
+    weather = await weather_api(location=location)
+    return weather  # {"weather": "clear", "temperature": 23.4}
 ```
+
+## 🪄 Request Filter
+
+You can validate and preprocess requests (recognized text from voice) before they are sent to LLM.
+
+```python
+# Create LLM service
+chatgpt = ChatGPTService(
+    openai_api_key=OPENAI_API_KEY,
+    system_prompt=SYSTEM_PROMPT,
+    skip_before="<answer>",
+    debug = True
+)
+
+# Set filter
+@chatgpt.request_filter
+def request_filter(text: str):
+    return f"Here is the user's spoken input. Respond as if you're a cat, adding 'meow' to the end of each sentence.\n\nUser: {text}"
+```
+
+**System Prompt vs Request Filter:** While the system prompt is generally static and used to define overall behavior, the request filter can dynamically insert instructions based on the specific context. It can emphasize key points to prioritize in generating responses, helping stabilize the conversation and adapt to changing scenarios.
 
 
 ## 🥰 Voice Style
@@ -250,11 +278,11 @@ Make the class that implements `compose_messages`, `update_context` and `get_llm
 ```python
 class LLMService(ABC):
     @abstractmethod
-    def compose_messages(self, context_id: str, text: str) -> List[dict]:
+    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
         pass
 
     @abstractmethod
-    def update_context(self, context_id: str, request_text: str, response_text: str):
+    async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
         pass
 
     @abstractmethod
@@ -285,6 +313,21 @@ class ResponseHandler(ABC):
 
     @abstractmethod
     async def stop_response(self, context_id: str):
+        pass
+```
+
+### Context Manager
+
+Make the class that implements `get_histories` and `add_histories` methods.
+
+```python
+class ContextManager(ABC):
+    @abstractmethod
+    async def get_histories(self, context_id: str, limit: int = 100) -> List[Dict]:
+        pass
+
+    @abstractmethod
+    async def add_histories(self, context_id: str, data_list: List[Dict], context_schema: str = None):
         pass
 ```
 
