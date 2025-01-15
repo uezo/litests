@@ -14,6 +14,7 @@ class PlayWaveResponseHandler(ResponseHandlerWithQueue):
         self.to_wave = None
         self.p = pyaudio.PyAudio()
         self.play_stream = None
+        self.wave_params = None
         self.chunk_size = 1024
 
     def play_audio(self, content: bytes):
@@ -26,11 +27,13 @@ class PlayWaveResponseHandler(ResponseHandlerWithQueue):
                 wave_content = content
 
             with wave.open(io.BytesIO(wave_content), "rb") as wf:
-                if not self.play_stream:
+                current_params = wf.getparams()
+                if not self.play_stream or self.wave_params != current_params:
+                    self.wave_params = current_params
                     self.play_stream = self.p.open(
-                        format=self.p.get_format_from_width(wf.getsampwidth()),
-                        channels=wf.getnchannels(),
-                        rate=wf.getframerate(),
+                        format=self.p.get_format_from_width(self.wave_params.sampwidth),
+                        channels=self.wave_params.nchannels,
+                        rate=self.wave_params.framerate,
                         output=True,
                     )
 
