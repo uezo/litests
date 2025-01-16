@@ -1,7 +1,6 @@
 import io
 import logging
 import wave
-import pyaudio
 from ..models import STSResponse
 from . import ResponseHandlerWithQueue
 
@@ -9,13 +8,23 @@ logger = logging.getLogger(__name__)
 
 
 class PlayWaveResponseHandler(ResponseHandlerWithQueue):
-    def __init__(self):
+    def __init__(self, debug: bool = False):
         super().__init__()
-        self.to_wave = None
-        self.p = pyaudio.PyAudio()
-        self.play_stream = None
-        self.wave_params = None
-        self.chunk_size = 1024
+        self.debug = debug
+        self.p = None
+
+        try:
+            import pyaudio
+
+            self.to_wave = None
+            self.p = pyaudio.PyAudio()
+            self.play_stream = None
+            self.wave_params = None
+            self.chunk_size = 1024
+
+        except Exception as ex:
+            logger.warning(f"Error at __init__ in PlayWaveResponseHandler: {ex}")
+            logger.warning("Response handler will just print responses.")
 
     def play_audio(self, content: bytes):
         try:
@@ -49,5 +58,13 @@ class PlayWaveResponseHandler(ResponseHandlerWithQueue):
 
     async def process_response_item(self, response: STSResponse):
         if response.type == "chunk":
-            if response.audio_data:
-                self.play_audio(response.audio_data)
+            if self.p:
+                # Voice mode
+                if response.audio_data:
+                    self.play_audio(response.audio_data)
+            else:
+                # Text mode
+                if response.type == "chunk":
+                    print(f"AI: {response.text}")
+                elif response.type == "final":
+                    print(f"context_id={response.context_id}, type={response.type}, audio_data={len(response.audio_data or [])}bytes")

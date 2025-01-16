@@ -1,20 +1,29 @@
 import asyncio
 from logging import getLogger
-from . import StandardSpeechDetector
+from .. import LiteSTS
+from ..models import STSRequest
 
 logger = getLogger(__name__)
 
 
 async def start_with_pyaudio(
     session_id: str,
-    vad: StandardSpeechDetector,
+    sts: LiteSTS,
     sample_rate: int = 16000,
     channels: int = 1,
     chunk_size: int = 512
 ):
     logger.info("LiteSTS start listening to microphone. (pyaudio)")
 
-    import pyaudio
+    try:
+        import pyaudio
+    except ModuleNotFoundError:
+        logger.warning("PyAudio is not found. Start text-based conversation in console.")
+        while True:
+            user_input = input("User: ")
+            if not user_input.strip():
+                continue
+            await sts.invoke(STSRequest(context_id=session_id, text=user_input))
 
     # Start microphone stream
     p = pyaudio.PyAudio()
@@ -33,26 +42,34 @@ async def start_with_pyaudio(
         data = await loop.run_in_executor(None, pyaudio_stream.read, chunk_size)
         if not data:
             break
-        await vad.process_samples(data, session_id)
+        await sts.vad.process_samples(data, session_id)
         await asyncio.sleep(0.0001)
 
     # Finalize
-    vad.delete_session(session_id)
+    sts.vad.delete_session(session_id)
 
     logger.info("LiteSTS finish listening. (pyaudio)")
 
 
 async def start_with_sounddevice(
     session_id: str,
-    vad: StandardSpeechDetector,
+    sts: LiteSTS,
     sample_rate: int = 16000,
     channels: int = 1,
     chunk_size: int = 512
 ):
     logger.info("LiteSTS start listening to microphone. (sd)")
 
-    import numpy
-    import sounddevice
+    try:
+        import numpy
+        import sounddevice
+    except ModuleNotFoundError:
+        logger.warning("PyAudio is not found. Start text-based conversation in console.")
+        while True:
+            user_input = input("User: ")
+            if not user_input.strip():
+                continue
+            await sts.invoke(STSRequest(context_id=session_id, text=user_input))
 
     # Start microphone stream
     sd_stream = sounddevice.InputStream(
@@ -75,10 +92,10 @@ async def start_with_sounddevice(
             break
 
         audio_bytes = numpy.int16(data * 32767).tobytes()
-        await vad.process_samples(audio_bytes, session_id)
+        await sts.vad.process_samples(audio_bytes, session_id)
         await asyncio.sleep(0.0001)
 
     # Finalize
-    vad.delete_session(session_id)
+    sts.vad.delete_session(session_id)
 
     logger.info("LiteSTS finish listening. (sounddevice)")
