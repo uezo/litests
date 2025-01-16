@@ -87,7 +87,7 @@ class LiteSTS:
         )
 
         # Response handler
-        self.response_handler = response_handler or PlayWaveResponseHandler()
+        self.response_handler = response_handler or PlayWaveResponseHandler(debug=debug)
 
         # Echo cancellation
         self.cancel_echo = cancel_echo
