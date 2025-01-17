@@ -1,6 +1,7 @@
 import json
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
+from urllib.parse import urlparse, parse_qs
 import openai
 from . import LLMService, ToolCall, ContextManager
 
@@ -34,7 +35,15 @@ class ChatGPTService(LLMService):
             context_manager=context_manager,
             debug=debug
         )
-        self.openai_client = openai.AsyncClient(api_key=openai_api_key, base_url=base_url)
+        if "azure" in model:
+            api_version = parse_qs(urlparse(base_url).query).get("api-version", [None])[0]
+            self.openai_client = openai.AsyncAzureOpenAI(
+                api_key=openai_api_key,
+                api_version=api_version,
+                base_url=base_url
+            )
+        else:
+            self.openai_client = openai.AsyncClient(api_key=openai_api_key, base_url=base_url)
 
     async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
         messages = []
@@ -73,6 +82,9 @@ class ChatGPTService(LLMService):
 
         tool_calls: List[ToolCall] = []
         async for chunk in stream_resp:
+            if not chunk.choices:
+                continue
+
             if chunk.choices[0].delta.tool_calls:
                 t = chunk.choices[0].delta.tool_calls[0]
                 if t.id:
