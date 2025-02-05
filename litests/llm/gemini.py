@@ -1,7 +1,8 @@
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
 import google.generativeai as genai
-from . import LLMService, ToolCall, ContextManager
+from . import LLMService, ToolCall
+from .context_manager import ContextManager
 
 logger = getLogger(__name__)
 

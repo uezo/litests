@@ -3,7 +3,8 @@ from logging import getLogger
 from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse, parse_qs
 import openai
-from . import LLMService, ToolCall, ContextManager
+from . import LLMService, ToolCall
+from .context_manager import ContextManager
 
 logger = getLogger(__name__)
 
