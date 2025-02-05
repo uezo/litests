@@ -1,19 +1,16 @@
 from datetime import datetime, timezone
 import json
 import os
-import sqlite3
 import pytest
-from litests.llm import SQLiteContextManager
+from litests.llm.context_manager.postgres import PostgreSQLContextManager
+
+LITESTS_DB_USER = os.getenv("LITESTS_DB_USER")
+LITESTS_DB_PASSWORD = os.getenv("LITESTS_DB_PASSWORD")
 
 
 @pytest.fixture
-def db_path(tmp_path):
-    return os.path.join(tmp_path, "test_context.db")
-
-
-@pytest.fixture
-def context_manager(db_path) -> SQLiteContextManager:
-    return SQLiteContextManager(db_path=db_path, context_timeout=3600)
+def context_manager() -> PostgreSQLContextManager:
+    return PostgreSQLContextManager(user=LITESTS_DB_USER, password=LITESTS_DB_PASSWORD, context_timeout=3600)
 
 
 @pytest.mark.asyncio
@@ -69,16 +66,17 @@ async def test_get_histories_timeout(context_manager):
     await context_manager.add_histories(context_id, [new_data])
 
     old_timestamp = datetime(2000, 1, 1, tzinfo=timezone.utc)
-    conn = sqlite3.connect(context_manager.db_path)
+    conn = context_manager.connect_db()
     try:
         with conn:
-            conn.execute(
-                """
-                INSERT INTO chat_histories (created_at, context_id, serialized_data)
-                VALUES (?, ?, ?)
-                """,
-                (old_timestamp, context_id, json.dumps(old_data))
-            )
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO chat_histories (created_at, context_id, serialized_data)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (old_timestamp, context_id, json.dumps(old_data))
+                )
     finally:
         conn.close()
 

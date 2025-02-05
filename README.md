@@ -87,11 +87,18 @@ stt = GoogleSpeechRecognizer(...)
 
 # (3) LLM
 from litests.llm.chatgpt import ChatGPTService
-llm = ChatGPTService(...)
+llm = ChatGPTService(
+    ...
+    context_manager=PostgreSQLContextManager(...)   # <- Set if you use PostgreSQL
+)
 
 # (4) TTS
 from litests.tts.voicevox import VoicevoxSpeechSynthesizer
 tts = VoicevoxSpeechSynthesizer(...)
+
+# (5) Performance Recorder
+from litests.performance_recorder.postgres import PostgreSQLPerformanceRecorder
+performance_recorder = PostgreSQLPerformanceRecorder(...)
 
 
 """
@@ -102,6 +109,7 @@ sts = litests.LiteSTS(
     stt=stt,
     llm=llm,
     tts=tts,
+    performance_recorder=performance_recorder,
     debug=True
 )
 
