@@ -145,6 +145,9 @@ class StandardSpeechDetector(SpeechDetector):
 
         logger.info("LiteSTS finish processing stream.")
 
+    async def finalize_session(self, session_id):
+        self.delete_session(session_id)
+
     def get_session(self, session_id: str):
         if session_id not in self.recording_sessions:
             session = RecordingSession(session_id, self.preroll_buffer_count)

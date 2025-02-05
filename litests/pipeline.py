@@ -9,8 +9,6 @@ from .llm import LLMService
 from .llm.chatgpt import ChatGPTService
 from .tts import SpeechSynthesizer
 from .tts.voicevox import VoicevoxSpeechSynthesizer
-from .response_handler import ResponseHandler
-from .response_handler.playaudio import PlayWaveResponseHandler
 from .performance_recorder import PerformanceRecord, PerformanceRecorder
 from .performance_recorder.sqlite import SQLitePerformanceRecorder
 
@@ -36,8 +34,6 @@ class LiteSTS:
         tts: SpeechSynthesizer = None,
         tts_voicevox_url: str = "http://127.0.0.1:50021",
         tts_voicevox_speaker: int = 46,
-        response_handler: ResponseHandler = None,
-        cancel_echo: bool = False,
         performance_recorder: PerformanceRecorder = None,
         debug: bool = False
     ):
@@ -87,12 +83,8 @@ class LiteSTS:
         )
 
         # Response handler
-        self.response_handler = response_handler or PlayWaveResponseHandler(debug=debug)
-
-        # Echo cancellation
-        self.cancel_echo = cancel_echo
-        if self.cancel_echo:
-            self.vad.should_mute = lambda: self.cancel_echo and self.response_handler.is_playing_locally
+        self.handle_response = self.handle_response_default
+        self.stop_response = self.stop_response_default
 
         # Performance recorder
         self.performance_recorder = performance_recorder or SQLitePerformanceRecorder()
@@ -102,6 +94,12 @@ class LiteSTS:
 
     async def start_with_stream(self, input_stream: AsyncGenerator[bytes, None], context_id: str):
         await self.vad.process_stream(input_stream, context_id)
+
+    async def handle_response_default(self, response: STSResponse):
+        logger.info(f"Handle response: {response}")
+
+    async def stop_response_default(self, context_id: str):
+        logger.info(f"Stop response: {context_id}")
 
     async def invoke(self, request: STSRequest):
         start_time = time()
@@ -131,7 +129,7 @@ class LiteSTS:
         performance.stt_time = time() - start_time
 
         # Stop on-going response before new response
-        await self.response_handler.stop_response(request.context_id)
+        await self.stop_response(request.context_id)
         performance.stop_response_time = time() - start_time
 
         # LLM
@@ -162,7 +160,7 @@ class LiteSTS:
             performance.response_voice_text = voice_text
 
         # Handle response
-        await self.response_handler.handle_response(
+        await self.handle_response(
             STSResponse(type="start", context_id=request.context_id)
         )
 
@@ -172,17 +170,20 @@ class LiteSTS:
             response_audio += audio_chunk
             response_text += text_chunk
             # NOTE: DO NOT BROCK at response handler
-            await self.response_handler.handle_response(
+            await self.handle_response(
                 STSResponse(type="chunk", context_id=request.context_id, text=text_chunk, audio_data=audio_chunk)
             )
         performance.response_text = response_text
 
-        await self.response_handler.handle_response(
+        await self.handle_response(
             STSResponse(type="final", context_id=request.context_id, text=response_text, audio_data=response_audio)
         )
 
         performance.total_time = time() - start_time
         self.performance_recorder.record(performance)
+
+    async def finalize(self, context_id: str):
+        await self.vad.finalize_session(context_id)
 
     async def shutdown(self):
         self.performance_recorder.close()

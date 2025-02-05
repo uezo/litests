@@ -37,7 +37,7 @@ It's super easy to create the Speech-to-Speech AI chatbot locally:
 ```python
 import asyncio
 from litests import LiteSTS
-from litests.vad.microphone_connector import start_with_pyaudio
+from litests.adapter.audiodevice import AudioDeviceAdapter
 
 OPENAI_API_KEY = "YOUR_API_KEY"
 GOOGLE_API_KEY = "YOUR_API_KEY"
@@ -50,11 +50,11 @@ async def quick_start_main():
         # Azure OpenAI
         # llm_model="azure",
         # llm_base_url="https://{your_resource_name}.openai.azure.com/openai/deployments/{your_deployment_name}/chat/completions?api-version={api_version}",
-        cancel_echo=True,   # Set False if you want to interrupt AI's answer
         debug=True
     )
 
-    await start_with_pyaudio("session_id", sts)
+    adapter = AudioDeviceAdapter(sts)
+    await adapter.start_listening("session_id")
 
 asyncio.run(quick_start_main())
 ```
@@ -93,10 +93,6 @@ llm = ChatGPTService(...)
 from litests.tts.voicevox import VoicevoxSpeechSynthesizer
 tts = VoicevoxSpeechSynthesizer(...)
 
-# (5) Response handler
-from litests.response_handler.playaudio import PlayWaveResponseHandler
-response_handler = PlayWaveResponseHandler(...)
-
 
 """
 Step 2. Assign them to Speech-to-Speech pipeline
@@ -106,24 +102,27 @@ sts = litests.LiteSTS(
     stt=stt,
     llm=llm,
     tts=tts,
-    response_handler=response_handler,
-    cancel_echo=True,
     debug=True
 )
 
 
 """
-Step 3. Start Speech-to-Speech with input audio data
+Step 3. Start Speech-to-Speech with adapter
 """
-# Case 1: Microphone (PyAudio or SoundDevice)
-from litests.vad.microphone_connector import start_with_pyaudio
-await start_with_pyaudio(vad)
+# Case 1: Microphone (PyAudio)
+adapter = AudioDeviceAdapter(sts)
+await adapter.start_listening("session_id")
 
-# Case 2: Generator (e.g. Audio streaming)
-await sts.start_with_stream(async_generator)
+# Case 2: WebSocket (Twilio)
+class TwilioAdapter(WebSocketAdapter):
+    # Implement adapter for twilio
+    ...
 
-# Case 3: Handled chunks (e.g. WebSocket inbound messages)
-await sts.process_audio_samples(chunk, session_id)
+adapter = TwilioAdapter(sts)
+router = adapter.get_websocket_router(wss_base_url="wss://your_domain")
+app = FastAPI()
+app.include_router(router)
+tts.audio_format = "mulaw"  # <- TTS service should support mulaw
 ```
 
 See also `examples/local/llms.py`. For example, you can use Gemini by the following code:
@@ -138,8 +137,6 @@ sts = litests.LiteSTS(
     stt=stt,
     llm=gemini,     # <- Set gemini here
     tts=tts,
-    response_handler=response_handler,
-    cancel_echo=True,
     debug=True
 )
 ```
@@ -304,12 +301,12 @@ class SpeechSynthesizer(ABC):
         pass
 ```
 
-### Response Handler
+### Adapter
 
 Make the class that implements `handle_response` and `stop_response` methods.
 
 ```python
-class ResponseHandler(ABC):
+class Adapter(ABC):
     @abstractmethod
     async def handle_response(self, response: STSResponse):
         pass

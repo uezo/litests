@@ -1,21 +1,31 @@
 import base64
-import json
-from typing import Dict
 from fastapi import FastAPI, WebSocket
 from litests import LiteSTS
-from litests.response_handler import ResponseHandler
+from litests.adapter.websocket import WebSocketAdapter, WebSocketSessionData
 
 OPENAI_API_KEY = "YOUR_API_KEY"
 GOOGLE_API_KEY = "YOUR_API_KEY"
 
 
-# Response handler for sending back to websocket client
-class WebSocketResponseHandler(ResponseHandler):
-    def __init__(self):
-        self.websockets: Dict[str, WebSocket] = {}
+# Adapter for sending back to websocket client
+class MyWebSocketAdapter(WebSocketAdapter):
+    async def process_websocket(self, websocket: WebSocket, session_data: WebSocketSessionData):
+        message = await websocket.receive_json()
+        message_type = message.get("type")
+        session_id = message["session_id"]
 
-    def set_websocket(self, session_id: str, websocket: WebSocket):
-        self.websockets[session_id] = websocket
+        if message_type == "start":
+            print(f"Connected: {session_id}")
+            self.websockets[session_id] = websocket
+
+        elif message_type == "data":
+            b64_audio_data = message["audio_data"]
+            audio_data = base64.b64decode(b64_audio_data)
+            await sts.process_audio_samples(audio_data, session_id)
+
+        elif message_type == "stop":
+            print("stop")
+            await websocket.close()
 
     async def handle_response(self, response):
         if response.type == "chunk" and response.audio_data:
@@ -40,34 +50,12 @@ sts = LiteSTS(
     vad_volume_db_threshold=-30,    # Adjust microphone sensitivity (Gate)
     stt_google_api_key=GOOGLE_API_KEY,
     llm_openai_api_key=OPENAI_API_KEY,
-    response_handler=WebSocketResponseHandler(),
     debug=True
 )
 
+adapter = MyWebSocketAdapter(sts)
+router = adapter.get_websocket_router()
 
-# Create websocket server with request handler
+# Create websocket server
 app = FastAPI()
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-
-    while True:
-        message_str = await websocket.receive_text()
-        message = json.loads(message_str)
-        message_type = message.get("type")
-        session_id = message["session_id"]
-
-        if message_type == "start":
-            print(f"Connected: {session_id}")
-            sts.response_handler.set_websocket(session_id, websocket)
-
-        elif message_type == "data":
-            b64_audio_data = message["audio_data"]
-            audio_data = base64.b64decode(b64_audio_data)
-            await sts.process_audio_samples(audio_data, session_id)
-
-        elif message_type == "stop":
-            print("stop")
-            await websocket.close()
-            break
+app.include_router(router)
