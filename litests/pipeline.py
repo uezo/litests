@@ -85,6 +85,7 @@ class LiteSTS:
         # Response handler
         self.handle_response = self.handle_response_default
         self.stop_response = self.stop_response_default
+        self._process_llm_chunk = self.process_llm_chunk_default
 
         # Performance recorder
         self.performance_recorder = performance_recorder or SQLitePerformanceRecorder()
@@ -94,6 +95,13 @@ class LiteSTS:
 
     async def start_with_stream(self, input_stream: AsyncGenerator[bytes, None], context_id: str):
         await self.vad.process_stream(input_stream, context_id)
+
+    def process_llm_chunk(self, func) -> dict:
+        self._process_llm_chunk = func
+        return func
+
+    async def process_llm_chunk_default(self, response: STSResponse):
+        return {}
 
     async def handle_response_default(self, response: STSResponse):
         logger.info(f"Handle response: {response}")
@@ -138,6 +146,7 @@ class LiteSTS:
         # TTS
         async def synthesize_stream():
             voice_text = ""
+            language = None
             async for llm_stream_chunk in llm_stream:
                 # LLM performance
                 if performance.llm_first_chunk_time == 0:
@@ -148,7 +157,15 @@ class LiteSTS:
                         performance.llm_first_voice_chunk_time = time() - start_time
                 performance.llm_time = time() - start_time
 
-                audio_chunk = await self.tts.synthesize(llm_stream_chunk.voice_text, {"styled_text": llm_stream_chunk.text})
+                # Parse info from LLM chunk (especially, language)
+                parsed_info = await self._process_llm_chunk(llm_stream_chunk)
+                language = parsed_info.get("language") or language
+
+                audio_chunk = await self.tts.synthesize(
+                    text=llm_stream_chunk.voice_text,
+                    style_info={"styled_text": llm_stream_chunk.text},
+                    language=language
+                )
 
                 # TTS performance
                 if audio_chunk:

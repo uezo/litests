@@ -38,7 +38,7 @@ class SpeechSynthesizer(ABC):
         return None
 
     @abstractmethod
-    async def synthesize(self, text: str, style_info: dict = None) -> bytes:
+    async def synthesize(self, text: str, style_info: dict = None, language: str = None) -> bytes:
         pass
 
     async def close(self):
