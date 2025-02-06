@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import asyncio
 import logging
 import re
-from typing import AsyncGenerator, List, Dict
+from typing import AsyncGenerator, List, Dict, Optional
 from .context_manager import ContextManager, SQLiteContextManager
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class LLMService(ABC):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        skip_before: str = None,
+        voice_text_tag: str = None,
         context_manager: ContextManager = None,
         debug: bool = False
     ):
@@ -49,7 +49,7 @@ class LLMService(ABC):
                 self.split_patterns.append(f"{re.escape(char)}\s?")
         self.option_split_chars_regex = f"({'|'.join(self.split_patterns)})\s*(?!.*({'|'.join(self.split_patterns)}))"
         self._request_filter = self.request_filter_default
-        self.skip_voice_before = skip_before
+        self.voice_text_tag = voice_text_tag
         self.tools = []
         self.tool_functions = {}
         self._on_before_tool_calls = self.on_before_tool_calls_default
@@ -91,12 +91,9 @@ class LLMService(ABC):
     async def get_llm_stream_response(self, messages: List[dict]) -> AsyncGenerator[str, None]:
         pass
 
-    def to_voice_text(self, text: str) -> str:
+    def remove_control_tags(self, text: str) -> str:
         clean_text = text
-        if self.skip_voice_before and self.skip_voice_before in clean_text:
-            clean_text = text.split(self.skip_voice_before, 1)[1].strip()
         clean_text = re.sub(r"\[(\w+):([^\]]+)\]", "", clean_text)
-        clean_text = re.sub(r"<(\w+)>|</(\w+)>", "", clean_text)
         clean_text = clean_text.strip()
         return clean_text
 
@@ -110,7 +107,41 @@ class LLMService(ABC):
 
         stream_buffer = ""
         response_text = ""
-        skip_voice = True if self.skip_voice_before else False
+        
+        in_voice_tag = False
+        target_start = f"<{self.voice_text_tag}>"
+        target_end = f"</{self.voice_text_tag}>"
+
+        def to_voice_text(segment: str) -> Optional[str]:
+            if not self.voice_text_tag:
+                return self.remove_control_tags(segment)
+
+            nonlocal in_voice_tag
+            if target_start in segment and target_end in segment:
+                in_voice_tag = False
+                start_index = segment.find(target_start)
+                end_index = segment.find(target_end)
+                voice_segment = segment[start_index + len(target_start): end_index]
+                return self.remove_control_tags(voice_segment)
+
+            elif target_start in segment:
+                in_voice_tag = True
+                start_index = segment.find(target_start)
+                voice_segment = segment[start_index + len(target_start):]
+                return self.remove_control_tags(voice_segment)
+
+            elif target_end in segment:
+                if in_voice_tag:
+                    in_voice_tag = False
+                    end_index = segment.find(target_end)
+                    voice_segment = segment[:end_index]
+                    return self.remove_control_tags(voice_segment)
+
+            elif in_voice_tag:
+                return self.remove_control_tags(segment)
+
+            return None
+
         async for chunk in self.get_llm_stream_response(context_id, messages):
             stream_buffer += chunk
 
@@ -120,25 +151,26 @@ class LLMService(ABC):
             if len(stream_buffer) > self.option_split_threshold:
                 stream_buffer = self.replace_last_option_split_char(stream_buffer)
 
-            sp = stream_buffer.split("|")
-            if len(sp) > 1: # >1 means `|` is found (splited at the end of sentence)
-                sentence = sp.pop(0)
-                stream_buffer = "".join(sp)
-                if skip_voice:
-                    if self.skip_voice_before in sentence:
-                        skip_voice = False
-                yield LLMResponse(sentence, None if skip_voice else self.to_voice_text(sentence))
+            segments = stream_buffer.split("|")
+            while len(segments) > 1:
+                sentence = segments.pop(0)
+                stream_buffer = "|".join(segments)
+                voice_text = to_voice_text(sentence)
+                yield LLMResponse(sentence, voice_text)
                 response_text += sentence
+                segments = stream_buffer.split("|")
 
             await asyncio.sleep(0.001)   # wait slightly in every loop not to use up CPU
 
         if stream_buffer:
-            if skip_voice:
-                if self.skip_voice_before in stream_buffer:
-                    skip_voice = False
-            yield LLMResponse(stream_buffer, None if skip_voice else self.to_voice_text(stream_buffer))
+            voice_text = to_voice_text(stream_buffer)
+            yield LLMResponse(stream_buffer, voice_text)
             response_text += stream_buffer
 
         logger.info(f"AI: {response_text}")
         if len(messages) > message_length_at_start:
-            await self.update_context(context_id, messages[message_length_at_start - len(messages):], response_text)
+            await self.update_context(
+                context_id,
+                messages[message_length_at_start - len(messages):],
+                response_text,
+            )

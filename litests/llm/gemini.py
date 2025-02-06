@@ -18,7 +18,7 @@ class GeminiService(LLMService):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        skip_before: str = None,
+        voice_text_tag: str = None,
         context_manager: ContextManager = None,
         debug: bool = False
     ):
@@ -29,7 +29,7 @@ class GeminiService(LLMService):
             split_chars=split_chars,
             option_split_chars=option_split_chars,
             option_split_threshold=option_split_threshold,
-            skip_before=skip_before,
+            voice_text_tag=voice_text_tag,
             context_manager=context_manager,
             debug=debug
         )

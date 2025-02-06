@@ -19,7 +19,7 @@ class DifyService(LLMService):
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
-        skip_before: str = None,
+        voice_text_tag: str = None,
         max_connections: int = 100,
         max_keepalive_connections: int = 20,
         timeout: float = 10.0
@@ -31,7 +31,7 @@ class DifyService(LLMService):
             split_chars=split_chars,
             option_split_chars=option_split_chars,
             option_split_threshold=option_split_threshold,
-            skip_before=skip_before
+            voice_text_tag=voice_text_tag
         )
         self.conversation_ids: Dict[str, str] = {}
         self.api_key = api_key
