@@ -1,27 +1,23 @@
 import os
 import pytest
 from litests.stt.google import GoogleSpeechRecognizer
-from litests.tts.speech_gateway import SpeechGatewaySpeechSynthesizer
+from litests.tts.google import GoogleSpeechSynthesizer
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-
 @pytest.mark.asyncio
-async def test_speech_gateway_synthesizer_with_google_stt():
+async def test_google_synthesizer_with_google_stt():
     """
-    Test the SpeechGatewaySpeechSynthesizer by actually calling a TTS server 
+    Test the GoogleSpeechSynthesizer by actually calling a TTS server 
     and verifying the synthesized audio with Google STT.
     This test requires:
-      - TTS server running at http://127.0.0.1:8000/tts
       - Valid GOOGLE_API_KEY environment variable
     """
 
     # 1) Create synthesizer instance
-    synthesizer = SpeechGatewaySpeechSynthesizer(
-        service_name="sbv2",
-        speaker="0-0",
-        tts_url="http://127.0.0.1:8000/tts",
-        audio_format="wav",
+    synthesizer = GoogleSpeechSynthesizer(
+        google_api_key=GOOGLE_API_KEY,
+        speaker="ja-JP-Standard-B",
         debug=True
     )
 
@@ -35,7 +31,7 @@ async def test_speech_gateway_synthesizer_with_google_stt():
     # 4) Recognize synthesized speech via GoogleSpeechRecognizer
     recognizer = GoogleSpeechRecognizer(
         google_api_key=GOOGLE_API_KEY,
-        sample_rate=44100,  # Sampling rate of TTS service
+        sample_rate=24000,  # Sampling rate of TTS service
         language="ja-JP"
     )
 
@@ -52,24 +48,14 @@ async def test_speech_gateway_synthesizer_with_google_stt():
 
 
 @pytest.mark.asyncio
-async def test_speech_gateway_synthesizer_with_google_stt_english():
-    """
-    Test the SpeechGatewaySpeechSynthesizer by actually calling a TTS server 
-    and verifying the synthesized audio with Google STT.
-    This test requires:
-      - TTS server running at http://127.0.0.1:8000/tts
-      - English routing is already configured on TTS server
-      - Valid GOOGLE_API_KEY environment variable
-    """
-
+async def test_google_synthesizer_with_google_stt_english():
     # 1) Create synthesizer instance
-    synthesizer = SpeechGatewaySpeechSynthesizer(
-        service_name="sbv2",
-        speaker="0-0",
-        tts_url="http://127.0.0.1:8000/tts",
-        audio_format="wav",
+    synthesizer = GoogleSpeechSynthesizer(
+        google_api_key=GOOGLE_API_KEY,
+        speaker="ja-JP-Standard-B",
         debug=True
     )
+    synthesizer.voice_map["en-US"] = "en-US-Standard-H"
 
     # 2) The text to synthesize
     input_text = "This is a test for speech synthesizer."
@@ -101,15 +87,15 @@ async def test_speech_gateway_synthesizer_with_google_stt_english():
 
 
 @pytest.mark.asyncio
-async def test_speech_gateway_synthesizer_empty_text():
+async def test_google_synthesizer_empty_text():
     """
-    If empty text is provided, speech_gateway should return empty bytes 
+    If empty text is provided, Google should return empty bytes 
     (no synthesis performed).
     """
-    synthesizer = SpeechGatewaySpeechSynthesizer(
-        service_name="sbv2",
-        speaker="0-0",
-        tts_url="http://127.0.0.1:8000/tts"
+    synthesizer = GoogleSpeechSynthesizer(
+        google_api_key=GOOGLE_API_KEY,
+        speaker="ja-JP-Standard-B",
+        debug=True
     )
 
     tts_data = await synthesizer.synthesize("    ")  # Empty or just whitespace

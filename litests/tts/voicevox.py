@@ -33,7 +33,7 @@ class VoicevoxSpeechSynthesizer(SpeechSynthesizer):
         response.raise_for_status()
         return response.json()
 
-    async def synthesize(self, text: str, style_info: dict = None) -> bytes:
+    async def synthesize(self, text: str, style_info: dict = None, language: str = None) -> bytes:
         if not text or not text.strip():
             return bytes()
 

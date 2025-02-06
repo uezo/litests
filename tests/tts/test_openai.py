@@ -1,27 +1,24 @@
 import os
 import pytest
 from litests.stt.google import GoogleSpeechRecognizer
-from litests.tts.speech_gateway import SpeechGatewaySpeechSynthesizer
+from litests.tts.openai import OpenAISpeechSynthesizer
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 @pytest.mark.asyncio
-async def test_speech_gateway_synthesizer_with_google_stt():
+async def test_openai_synthesizer_with_google_stt():
     """
-    Test the SpeechGatewaySpeechSynthesizer by actually calling a TTS server 
+    Test the OpenAISpeechSynthesizer by actually calling a TTS server 
     and verifying the synthesized audio with Google STT.
     This test requires:
-      - TTS server running at http://127.0.0.1:8000/tts
-      - Valid GOOGLE_API_KEY environment variable
+      - Valid GOOGLE_API_KEY and OPENAI_API_KEY environment variables
     """
 
     # 1) Create synthesizer instance
-    synthesizer = SpeechGatewaySpeechSynthesizer(
-        service_name="sbv2",
-        speaker="0-0",
-        tts_url="http://127.0.0.1:8000/tts",
-        audio_format="wav",
+    synthesizer = OpenAISpeechSynthesizer(
+        openai_api_key=OPENAI_API_KEY,
+        speaker="shimmer",
         debug=True
     )
 
@@ -35,7 +32,7 @@ async def test_speech_gateway_synthesizer_with_google_stt():
     # 4) Recognize synthesized speech via GoogleSpeechRecognizer
     recognizer = GoogleSpeechRecognizer(
         google_api_key=GOOGLE_API_KEY,
-        sample_rate=44100,  # Sampling rate of TTS service
+        sample_rate=24000,  # Sampling rate of TTS service
         language="ja-JP"
     )
 
@@ -52,22 +49,18 @@ async def test_speech_gateway_synthesizer_with_google_stt():
 
 
 @pytest.mark.asyncio
-async def test_speech_gateway_synthesizer_with_google_stt_english():
+async def test_openai_synthesizer_with_google_stt_english():
     """
-    Test the SpeechGatewaySpeechSynthesizer by actually calling a TTS server 
+    Test the OpenAISpeechSynthesizer by actually calling a TTS server 
     and verifying the synthesized audio with Google STT.
     This test requires:
-      - TTS server running at http://127.0.0.1:8000/tts
-      - English routing is already configured on TTS server
-      - Valid GOOGLE_API_KEY environment variable
+      - Valid GOOGLE_API_KEY and OPENAI_API_KEY environment variables
     """
 
     # 1) Create synthesizer instance
-    synthesizer = SpeechGatewaySpeechSynthesizer(
-        service_name="sbv2",
-        speaker="0-0",
-        tts_url="http://127.0.0.1:8000/tts",
-        audio_format="wav",
+    synthesizer = OpenAISpeechSynthesizer(
+        openai_api_key=OPENAI_API_KEY,
+        speaker="shimmer",
         debug=True
     )
 
@@ -75,7 +68,7 @@ async def test_speech_gateway_synthesizer_with_google_stt_english():
     input_text = "This is a test for speech synthesizer."
 
     # 3) Call TTS
-    tts_data = await synthesizer.synthesize(input_text, language="en-US")
+    tts_data = await synthesizer.synthesize(input_text)
     assert len(tts_data) > 0, "Synthesized audio data is empty."
 
     # 4) Recognize synthesized speech via GoogleSpeechRecognizer
@@ -101,15 +94,15 @@ async def test_speech_gateway_synthesizer_with_google_stt_english():
 
 
 @pytest.mark.asyncio
-async def test_speech_gateway_synthesizer_empty_text():
+async def test_openai_synthesizer_empty_text():
     """
-    If empty text is provided, speech_gateway should return empty bytes 
+    If empty text is provided, OpenAI should return empty bytes 
     (no synthesis performed).
     """
-    synthesizer = SpeechGatewaySpeechSynthesizer(
-        service_name="sbv2",
-        speaker="0-0",
-        tts_url="http://127.0.0.1:8000/tts"
+    synthesizer = OpenAISpeechSynthesizer(
+        openai_api_key=OPENAI_API_KEY,
+        speaker="shimmer",
+        debug=True
     )
 
     tts_data = await synthesizer.synthesize("    ")  # Empty or just whitespace

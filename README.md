@@ -227,6 +227,43 @@ def request_filter(text: str):
 **System Prompt vs Request Filter:** While the system prompt is generally static and used to define overall behavior, the request filter can dynamically insert instructions based on the specific context. It can emphasize key points to prioritize in generating responses, helping stabilize the conversation and adapt to changing scenarios.
 
 
+## 🌏 Multi-language Support
+
+You can dynamically switch the spoken language during a conversation.  
+To enable this, configure the system prompt, set up `SpeechSynthesizer`, and add custom logic to the Speech-to-Speech pipeline as shown below:
+
+```python
+# System prompt
+SYSTEM_PROMPT = """
+You can speak following languages:
+
+- English (en-US)
+- Chinese (zh-CN)
+
+When responding in a language other than Japanese, always prepend `[lang:en-US]` or `[lang:zh-CN]` at the beginning of the response.  
+Additionally, when switching back to Japanese from another language, always prepend `[lang:ja-JP]` at the beginning of the response.
+"""
+
+# Setup TTS and configure language-speaker map
+tts = GoogleSpeechSynthesizer(
+    google_api_key=GOOGLE_API_KEY,
+    speaker="ja-JP-Standard-B",
+)
+tts.voice_map["en-US"] = "en-US-Standard-H"     # English
+tts.voice_map["cmn-CN"] = "cmn-CN-Standard-D"   # Chinese
+
+# Add parsing logic for language code
+import re
+@sts.process_llm_chunk
+async def process_llm_chunk(chunk: STSResponse):
+    match = re.search(r"\[lang:([a-zA-Z-]+)\]", chunk.text)
+    if match:
+        return {"language": match.group(1)}
+    else:
+        return {}
+```
+
+
 ## 🥰 Voice Style
 
 You can apply a specific voice style to synthesized speech when certain keywords are included in the response.
