@@ -88,7 +88,7 @@ async def test_chatgpt_azure_service_cot():
         system_prompt=SYSTEM_PROMPT_COT,
         model="azure",
         temperature=0.5,
-        skip_before="<answer>"
+        voice_text_tag="answer"
     )
     context_id = f"test_cot_context_{uuid4()}"
 

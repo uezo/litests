@@ -84,7 +84,7 @@ async def test_claude_service_cot():
         system_prompt=SYSTEM_PROMPT_COT,
         model=MODEL,
         temperature=0.5,
-        skip_before="<answer>"
+        voice_text_tag="answer"
     )
     context_id = f"test_context_cot_{uuid4()}"
 

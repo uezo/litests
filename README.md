@@ -182,6 +182,30 @@ async def get_weather(location: str = None):
     return weather  # {"weather": "clear", "temperature": 23.4}
 ```
 
+
+## ⛓️ Chain of Thought Prompting
+
+Chain of Thought Prompting (CoT) is one of the popular techniques to improve the quality of AI responses. LiteSTS, by default, directly synthesize AI output, but it can also be configured to synthesize only the text inside specific XML tags.
+
+For example, if you want the AI to output its thought process inside `<thinking>~</thinking>` and the final speech content inside `<answer>~</answer>`, you can use the following sample code:
+
+```python
+SYSTEM_PROMPT = """
+Carefully consider the response first.
+Output your thought process inside <thinking>~</thinking>.
+Then, output the content to be spoken inside <answer>~</answer>.
+"""
+
+service = ChatGPTService(
+    openai_api_key=OPENAI_API_KEY,
+    system_prompt=SYSTEM_PROMPT,
+    model="gpt-4o",
+    temperature=0.5,
+    voice_text_tag="answer" # <- Synthesize inner text of <answer> tag
+)
+```
+
+
 ## 🪄 Request Filter
 
 You can validate and preprocess requests (recognized text from voice) before they are sent to LLM.
@@ -191,7 +215,6 @@ You can validate and preprocess requests (recognized text from voice) before the
 chatgpt = ChatGPTService(
     openai_api_key=OPENAI_API_KEY,
     system_prompt=SYSTEM_PROMPT,
-    skip_before="<answer>",
     debug = True
 )
 
