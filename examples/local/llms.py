@@ -5,7 +5,7 @@ from litests.llm.gemini import GeminiService
 from litests.llm.claude import ClaudeService
 from litests.llm.dify import DifyService
 from litests.llm.litellm import LiteLLMService
-from litests.vad.microphone_connector import start_with_pyaudio
+from litests.adapter.audiodevice import AudioDeviceAdapter
 
 GOOGLE_API_KEY = "GOOGLE_API_KEY"
 
@@ -45,13 +45,20 @@ async def quick_start_main():
     # await gemini.preflight()
 
     sts = LiteSTS(
-        vad_volume_db_threshold=-30,    # Adjust microphone sensitivity (Gate)
+        vad_volume_db_threshold=-40,    # Adjust microphone sensitivity (Gate)
         stt_google_api_key=GOOGLE_API_KEY,
         llm=litellm,     # <- Select LLM service you want to use
         cancel_echo=True,
         debug=True
     )
 
-    await start_with_pyaudio("session_id", sts.vad)
+    # Create adapter
+    adapter = AudioDeviceAdapter(
+        sts,
+        cancel_echo=True    # Set False if you want to interrupt AI's answer
+    )
+
+    # Start listening
+    await adapter.start_listening("_")
 
 asyncio.run(quick_start_main())
