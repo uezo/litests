@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+from typing import List
 import wave
 from . import SpeechRecognizer
 
@@ -14,6 +15,7 @@ class AzureSpeechRecognizer(SpeechRecognizer):
         azure_region: str,
         sample_rate: int = 16000,
         language: str = "ja-JP",
+        alternative_languages: List[str] = None,
         use_classic: bool = False,
         *,
         max_connections: int = 100,
@@ -23,6 +25,7 @@ class AzureSpeechRecognizer(SpeechRecognizer):
     ):
         super().__init__(
             language=language,
+            alternative_languages=alternative_languages,
             max_connections=max_connections,
             max_keepalive_connections=max_keepalive_connections,
             timeout=timeout,
@@ -32,6 +35,8 @@ class AzureSpeechRecognizer(SpeechRecognizer):
         self.azure_region = azure_region
         self.sample_rate = sample_rate
         self.use_classic = use_classic
+        if self.use_classic and self.alternative_languages:
+            logger.warning("Auto language detection is not available in Azure STT v1. Set `use_classic=False` to enable this feature.")
 
     async def transcribe(self, data: bytes) -> str:
         if self.use_classic:
@@ -75,14 +80,16 @@ class AzureSpeechRecognizer(SpeechRecognizer):
 
     async def transcribe_fast(self, data: bytes) -> str:
         # Using Fast Transcription
-        # https://learn.microsoft.com/ja-jp/rest/api/speechtotext/transcriptions/transcribe?view=rest-speechtotext-2024-11-15&tabs=HTTP
+        # https://learn.microsoft.com/en-us/rest/api/speechtotext/transcriptions/transcribe?view=rest-speechtotext-2024-11-15&tabs=HTTP
         headers = {
             "Ocp-Apim-Subscription-Key": self.azure_api_key,
         }
 
+        # https://learn.microsoft.com/en-us/azure/ai-services/speech-service/fast-transcription-create?tabs=locale-specified#request-configuration-options
+        locales = [self.language] + self.alternative_languages
         files = {
             "audio": self.to_wave_file(data),
-            "definition": (None, json.dumps({"locales": [self.language], "channels": [0,1]}), "application/json"),
+            "definition": (None, json.dumps({"locales": locales, "channels": [0,1]}), "application/json"),
         }
 
         resp = await self.http_client.post(
