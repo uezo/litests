@@ -1,5 +1,6 @@
 import base64
 import logging
+from typing import List
 from . import SpeechRecognizer
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,7 @@ class GoogleSpeechRecognizer(SpeechRecognizer):
         google_api_key: str,
         sample_rate: int = 16000,
         language: str = "ja-JP",
+        alternative_languages: List[str] = None,
         *,
         max_connections: int = 100,
         max_keepalive_connections: int = 20,
@@ -19,6 +21,7 @@ class GoogleSpeechRecognizer(SpeechRecognizer):
     ):
         super().__init__(
             language=language,
+            alternative_languages=alternative_languages,
             max_connections=max_connections,
             max_keepalive_connections=max_keepalive_connections,
             timeout=timeout,
@@ -38,6 +41,8 @@ class GoogleSpeechRecognizer(SpeechRecognizer):
                 "content": base64.b64encode(data).decode("utf-8")
             },
         }
+        if self.alternative_languages:
+            request_body["config"]["alternativeLanguageCodes"] = self.alternative_languages
 
         resp = await self.http_client.post(
             f"https://speech.googleapis.com/v1/speech:recognize?key={self.google_api_key}",

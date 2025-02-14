@@ -7,19 +7,19 @@ from litests.llm.chatgpt import ChatGPTService
 from litests.tts.voicevox import VoicevoxSpeechSynthesizer
 from litests.performance_recorder.sqlite import SQLitePerformanceRecorder
 from litests.models import STSRequest, STSResponse
-from litests.response_handler import ResponseHandler
+from litests.adapter import Adapter
 
 from litests import LiteSTS
 
 INPUT_VOICE_SAMPLE_RATE = 24000 # using VOICEVOX
 
 
-class RecordingResponseHandler(ResponseHandler):
+class RecordingAdapter(Adapter):
     """
     A custom ResponseHandler that records the final audio data in memory.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, sts: LiteSTS):
+        super().__init__(sts)
         self.final_audio = bytes()
 
     async def handle_response(self, response: STSResponse):
@@ -63,9 +63,6 @@ async def test_lite_sts_pipeline():
     async def get_output_text(voice: bytes):
         return await stt_for_final.transcribe(voice)
 
-    # Response handler for test
-    recording_handler = RecordingResponseHandler()
-
     # Initialize pipeline
     lite_sts = LiteSTS(
         vad=StandardSpeechDetector(
@@ -89,10 +86,12 @@ async def test_lite_sts_pipeline():
             speaker=46,
             debug=True
         ),
-        response_handler=recording_handler,
         performance_recorder=SQLitePerformanceRecorder(),  # DB記録
         debug=True
     )
+
+    # Adapter for test
+    adapter = RecordingAdapter(lite_sts)
 
     context_id = "test_pipeline_nippon"
 
@@ -100,7 +99,7 @@ async def test_lite_sts_pipeline():
     await lite_sts.invoke(STSRequest(context_id=context_id, audio_data=await get_input_voice("日本の首都は？")))
 
     # Check output voice audio
-    final_audio = recording_handler.final_audio
+    final_audio = adapter.final_audio
     assert len(final_audio) > 0, "No final audio was captured by the response handler."
     output_text = await get_output_text(final_audio)
     assert "東京" in output_text, f"Expected '東京' in recognized text, but got: {output_text}"
@@ -109,7 +108,7 @@ async def test_lite_sts_pipeline():
     await lite_sts.invoke(STSRequest(context_id=context_id, audio_data=await get_input_voice("アメリカは？")))
 
     # Check output voice audio
-    final_audio = recording_handler.final_audio
+    final_audio = adapter.final_audio
     assert len(final_audio) > 0, "No final audio was captured by the response handler."
     output_text = await get_output_text(final_audio)
     assert "ワシントン" in output_text, f"Expected 'ワシントン' in recognized text, but got: {output_text}"

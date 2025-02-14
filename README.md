@@ -37,7 +37,7 @@ It's super easy to create the Speech-to-Speech AI chatbot locally:
 ```python
 import asyncio
 from litests import LiteSTS
-from litests.vad.microphone_connector import start_with_pyaudio
+from litests.adapter.audiodevice import AudioDeviceAdapter
 
 OPENAI_API_KEY = "YOUR_API_KEY"
 GOOGLE_API_KEY = "YOUR_API_KEY"
@@ -50,11 +50,11 @@ async def quick_start_main():
         # Azure OpenAI
         # llm_model="azure",
         # llm_base_url="https://{your_resource_name}.openai.azure.com/openai/deployments/{your_deployment_name}/chat/completions?api-version={api_version}",
-        cancel_echo=True,   # Set False if you want to interrupt AI's answer
         debug=True
     )
 
-    await start_with_pyaudio("session_id", sts)
+    adapter = AudioDeviceAdapter(sts)
+    await adapter.start_listening("session_id")
 
 asyncio.run(quick_start_main())
 ```
@@ -87,15 +87,18 @@ stt = GoogleSpeechRecognizer(...)
 
 # (3) LLM
 from litests.llm.chatgpt import ChatGPTService
-llm = ChatGPTService(...)
+llm = ChatGPTService(
+    ...
+    context_manager=PostgreSQLContextManager(...)   # <- Set if you use PostgreSQL
+)
 
 # (4) TTS
 from litests.tts.voicevox import VoicevoxSpeechSynthesizer
 tts = VoicevoxSpeechSynthesizer(...)
 
-# (5) Response handler
-from litests.response_handler.playaudio import PlayWaveResponseHandler
-response_handler = PlayWaveResponseHandler(...)
+# (5) Performance Recorder
+from litests.performance_recorder.postgres import PostgreSQLPerformanceRecorder
+performance_recorder = PostgreSQLPerformanceRecorder(...)
 
 
 """
@@ -106,24 +109,28 @@ sts = litests.LiteSTS(
     stt=stt,
     llm=llm,
     tts=tts,
-    response_handler=response_handler,
-    cancel_echo=True,
+    performance_recorder=performance_recorder,
     debug=True
 )
 
 
 """
-Step 3. Start Speech-to-Speech with input audio data
+Step 3. Start Speech-to-Speech with adapter
 """
-# Case 1: Microphone (PyAudio or SoundDevice)
-from litests.vad.microphone_connector import start_with_pyaudio
-await start_with_pyaudio(vad)
+# Case 1: Microphone (PyAudio)
+adapter = AudioDeviceAdapter(sts)
+await adapter.start_listening("session_id")
 
-# Case 2: Generator (e.g. Audio streaming)
-await sts.start_with_stream(async_generator)
+# Case 2: WebSocket (Twilio)
+class TwilioAdapter(WebSocketAdapter):
+    # Implement adapter for twilio
+    ...
 
-# Case 3: Handled chunks (e.g. WebSocket inbound messages)
-await sts.process_audio_samples(chunk, session_id)
+adapter = TwilioAdapter(sts)
+router = adapter.get_websocket_router(wss_base_url="wss://your_domain")
+app = FastAPI()
+app.include_router(router)
+tts.audio_format = "mulaw"  # <- TTS service should support mulaw
 ```
 
 See also `examples/local/llms.py`. For example, you can use Gemini by the following code:
@@ -138,8 +145,6 @@ sts = litests.LiteSTS(
     stt=stt,
     llm=gemini,     # <- Set gemini here
     tts=tts,
-    response_handler=response_handler,
-    cancel_echo=True,
     debug=True
 )
 ```
@@ -177,6 +182,30 @@ async def get_weather(location: str = None):
     return weather  # {"weather": "clear", "temperature": 23.4}
 ```
 
+
+## ⛓️ Chain of Thought Prompting
+
+Chain of Thought Prompting (CoT) is one of the popular techniques to improve the quality of AI responses. LiteSTS, by default, directly synthesize AI output, but it can also be configured to synthesize only the text inside specific XML tags.
+
+For example, if you want the AI to output its thought process inside `<thinking>~</thinking>` and the final speech content inside `<answer>~</answer>`, you can use the following sample code:
+
+```python
+SYSTEM_PROMPT = """
+Carefully consider the response first.
+Output your thought process inside <thinking>~</thinking>.
+Then, output the content to be spoken inside <answer>~</answer>.
+"""
+
+service = ChatGPTService(
+    openai_api_key=OPENAI_API_KEY,
+    system_prompt=SYSTEM_PROMPT,
+    model="gpt-4o",
+    temperature=0.5,
+    voice_text_tag="answer" # <- Synthesize inner text of <answer> tag
+)
+```
+
+
 ## 🪄 Request Filter
 
 You can validate and preprocess requests (recognized text from voice) before they are sent to LLM.
@@ -186,7 +215,6 @@ You can validate and preprocess requests (recognized text from voice) before the
 chatgpt = ChatGPTService(
     openai_api_key=OPENAI_API_KEY,
     system_prompt=SYSTEM_PROMPT,
-    skip_before="<answer>",
     debug = True
 )
 
@@ -197,6 +225,43 @@ def request_filter(text: str):
 ```
 
 **System Prompt vs Request Filter:** While the system prompt is generally static and used to define overall behavior, the request filter can dynamically insert instructions based on the specific context. It can emphasize key points to prioritize in generating responses, helping stabilize the conversation and adapt to changing scenarios.
+
+
+## 🌏 Multi-language Support
+
+You can dynamically switch the spoken language during a conversation.  
+To enable this, configure the system prompt, set up `SpeechSynthesizer`, and add custom logic to the Speech-to-Speech pipeline as shown below:
+
+```python
+# System prompt
+SYSTEM_PROMPT = """
+You can speak following languages:
+
+- English (en-US)
+- Chinese (zh-CN)
+
+When responding in a language other than Japanese, always prepend `[lang:en-US]` or `[lang:zh-CN]` at the beginning of the response.  
+Additionally, when switching back to Japanese from another language, always prepend `[lang:ja-JP]` at the beginning of the response.
+"""
+
+# Setup TTS and configure language-speaker map
+tts = GoogleSpeechSynthesizer(
+    google_api_key=GOOGLE_API_KEY,
+    speaker="ja-JP-Standard-B",
+)
+tts.voice_map["en-US"] = "en-US-Standard-H"     # English
+tts.voice_map["cmn-CN"] = "cmn-CN-Standard-D"   # Chinese
+
+# Add parsing logic for language code
+import re
+@sts.process_llm_chunk
+async def process_llm_chunk(chunk: STSResponse):
+    match = re.search(r"\[lang:([a-zA-Z-]+)\]", chunk.text)
+    if match:
+        return {"language": match.group(1)}
+    else:
+        return {}
+```
 
 
 ## 🥰 Voice Style
@@ -304,12 +369,12 @@ class SpeechSynthesizer(ABC):
         pass
 ```
 
-### Response Handler
+### Adapter
 
 Make the class that implements `handle_response` and `stop_response` methods.
 
 ```python
-class ResponseHandler(ABC):
+class Adapter(ABC):
     @abstractmethod
     async def handle_response(self, response: STSResponse):
         pass

@@ -25,3 +25,7 @@ class SpeechDetector(ABC):
     @abstractmethod
     async def process_stream(self, input_stream: AsyncGenerator[bytes, None], session_id: str = None):
         pass
+
+    @abstractmethod
+    async def finalize_session(self, session_id: str):
+        pass

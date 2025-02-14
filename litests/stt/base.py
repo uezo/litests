@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import List
 import httpx
 import logging
 
@@ -10,12 +11,14 @@ class SpeechRecognizer(ABC):
         self,
         *,
         language: str = None,
+        alternative_languages: List[str] = None,
         max_connections: int = 100,
         max_keepalive_connections: int = 20,
         timeout: float = 10.0,
         debug: bool = False
     ):
         self.language = language
+        self.alternative_languages = alternative_languages or []
         self.http_client = httpx.AsyncClient(
             follow_redirects=False,
             timeout=httpx.Timeout(timeout),
