@@ -1,7 +1,7 @@
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
 import google.generativeai as genai
-from . import LLMService, ToolCall
+from . import LLMService, LLMResponse, ToolCall
 from .context_manager import ContextManager
 
 logger = getLogger(__name__)
@@ -75,7 +75,7 @@ class GeminiService(LLMService):
         self.tool_functions[func.__name__] = func
         return func
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
+    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         stream_resp = await self.gemini_client.generate_content_async(
             contents=messages,
             tools=self.tools if self.tools else None,
@@ -86,7 +86,7 @@ class GeminiService(LLMService):
         async for chunk in stream_resp:
             for part in chunk.candidates[0].content.parts:
                 if content := part.text:
-                    yield content
+                    yield LLMResponse(context_id=context_id, text=content)
                 elif part.function_call:
                     tool_calls.append(ToolCall("", part.function_call.name, dict(part.function_call.args)))
 
@@ -98,6 +98,8 @@ class GeminiService(LLMService):
             #       Multiple tools will be called sequentially: user -(llm)-> function_call -> function_response -(llm)-> function_call -> function_response -(llm)-> assistant
             # Execute tools
             for tc in tool_calls:
+                yield LLMResponse(context_id=context_id, tool_call=tc)
+
                 tool_result = await self.tool_functions[tc.name](**(tc.arguments))
 
                 messages.append({
@@ -120,5 +122,5 @@ class GeminiService(LLMService):
                     }]
                 })
 
-            async for chunk in self.get_llm_stream_response(context_id, messages):
-                yield chunk
+            async for llm_response in self.get_llm_stream_response(context_id, messages):
+                yield llm_response

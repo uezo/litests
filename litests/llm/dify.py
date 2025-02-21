@@ -2,7 +2,7 @@ from logging import getLogger
 import json
 from typing import AsyncGenerator, Dict, List
 import httpx
-from . import LLMService
+from . import LLMService, LLMResponse
 
 logger = getLogger(__name__)
 
@@ -68,7 +68,7 @@ class DifyService(LLMService):
         pass
 
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
+    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         headers = {
             "Authorization": f"Bearer {self.api_key}"
         }
@@ -86,7 +86,7 @@ class DifyService(LLMService):
                 chunk_json = json.loads(chunk[5:])
                 if chunk_json["event"] == message_event_value:
                     answer = chunk_json["answer"]
-                    yield answer
+                    yield LLMResponse(context_id=context_id, text=answer)
                 elif chunk_json["event"] == "message_end":
                     # Save conversation id instead of managing context locally
                     self.conversation_ids[context_id] = chunk_json["conversation_id"]

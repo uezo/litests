@@ -2,7 +2,7 @@ import json
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
 from litellm import acompletion
-from . import LLMService, ToolCall
+from . import LLMService, LLMResponse, ToolCall
 from .context_manager import ContextManager
 
 logger = getLogger(__name__)
@@ -71,7 +71,7 @@ class LiteLLMService(LLMService):
             return func
         return decorator
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
+    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         stream_resp = await acompletion(
             api_key=self.api_key,
             base_url=self.base_url,
@@ -85,7 +85,7 @@ class LiteLLMService(LLMService):
         tool_calls: List[ToolCall] = []
         async for chunk in stream_resp:
             if content := chunk.choices[0].delta.content:
-                yield content
+                yield LLMResponse(context_id=context_id, text=content)
 
             elif chunk.choices[0].delta.tool_calls:
                 t = chunk.choices[0].delta.tool_calls[0]
@@ -100,6 +100,8 @@ class LiteLLMService(LLMService):
 
             # Execute tools
             for tc in tool_calls:
+                yield LLMResponse(context_id=context_id, tool_call=tc)
+
                 tool_result = await self.tool_functions[tc.name](**(json.loads(tc.arguments)))
 
                 messages.append({
@@ -120,5 +122,5 @@ class LiteLLMService(LLMService):
                     "tool_call_id": tc.id
                 })
 
-            async for chunk in self.get_llm_stream_response(context_id, messages):
-                yield chunk
+            async for llm_response in self.get_llm_stream_response(context_id, messages):
+                yield llm_response
