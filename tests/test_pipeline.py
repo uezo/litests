@@ -27,8 +27,10 @@ class RecordingAdapter(Adapter):
             await self.handle_response(response)
 
     async def handle_response(self, response: STSResponse):
+        if response.type == "chunk" and response.audio_data:
+            self.final_audio += response.audio_data
         # We only care about the "final" response which carries the entire synthesized audio
-        if response.type == "final" and response.audio_data:
+        elif response.type == "final" and response.audio_data:
             self.final_audio = response.audio_data
 
     async def stop_response(self, context_id: str):

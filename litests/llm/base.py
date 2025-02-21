@@ -16,9 +16,11 @@ class ToolCall:
 
 
 class LLMResponse:
-    def __init__(self, text: str = None, voice_text: str = None):
+    def __init__(self, context_id: str, text: str = None, voice_text: str = None, tool_call: ToolCall = None):
+        self.context_id = context_id
         self.text = text
         self.voice_text = voice_text
+        self.tool_call = tool_call
 
 
 class LLMService(ABC):
@@ -88,7 +90,7 @@ class LLMService(ABC):
         pass
 
     @abstractmethod
-    async def get_llm_stream_response(self, messages: List[dict]) -> AsyncGenerator[str, None]:
+    async def get_llm_stream_response(self, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         pass
 
     def remove_control_tags(self, text: str) -> str:
@@ -143,7 +145,11 @@ class LLMService(ABC):
             return None
 
         async for chunk in self.get_llm_stream_response(context_id, messages):
-            stream_buffer += chunk
+            if chunk.tool_call:
+                yield chunk
+                continue
+
+            stream_buffer += chunk.text
 
             for spc in self.split_chars:
                 stream_buffer = stream_buffer.replace(spc, spc + "|")
@@ -156,7 +162,7 @@ class LLMService(ABC):
                 sentence = segments.pop(0)
                 stream_buffer = "|".join(segments)
                 voice_text = to_voice_text(sentence)
-                yield LLMResponse(sentence, voice_text)
+                yield LLMResponse(context_id, sentence, voice_text)
                 response_text += sentence
                 segments = stream_buffer.split("|")
 
@@ -164,7 +170,7 @@ class LLMService(ABC):
 
         if stream_buffer:
             voice_text = to_voice_text(stream_buffer)
-            yield LLMResponse(stream_buffer, voice_text)
+            yield LLMResponse(context_id, stream_buffer, voice_text)
             response_text += stream_buffer
 
         logger.info(f"AI: {response_text}")
