@@ -22,6 +22,10 @@ class RecordingAdapter(Adapter):
         super().__init__(sts)
         self.final_audio = bytes()
 
+    async def handle_request(self, request: STSRequest):
+        async for response in self.sts.invoke(request):
+            await self.handle_response(response)
+
     async def handle_response(self, response: STSResponse):
         # We only care about the "final" response which carries the entire synthesized audio
         if response.type == "final" and response.audio_data:
@@ -96,7 +100,7 @@ async def test_lite_sts_pipeline():
     context_id = "test_pipeline_nippon"
 
     # Invoke pipeline with the first request (Ask capital of Japan)
-    await lite_sts.invoke(STSRequest(context_id=context_id, audio_data=await get_input_voice("日本の首都は？")))
+    await adapter.handle_request(STSRequest(context_id=context_id, audio_data=await get_input_voice("日本の首都は？")))
 
     # Check output voice audio
     final_audio = adapter.final_audio
@@ -105,7 +109,7 @@ async def test_lite_sts_pipeline():
     assert "東京" in output_text, f"Expected '東京' in recognized text, but got: {output_text}"
 
     # Invoke pipeline with the successive request (Ask about of US, without using the word 'capital' to check context)
-    await lite_sts.invoke(STSRequest(context_id=context_id, audio_data=await get_input_voice("アメリカは？")))
+    await adapter.handle_request(STSRequest(context_id=context_id, audio_data=await get_input_voice("アメリカは？")))
 
     # Check output voice audio
     final_audio = adapter.final_audio
