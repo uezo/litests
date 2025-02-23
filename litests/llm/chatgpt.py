@@ -3,7 +3,7 @@ from logging import getLogger
 from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse, parse_qs
 import openai
-from . import LLMService, ToolCall
+from . import LLMService, LLMResponse, ToolCall
 from .context_manager import ContextManager
 
 logger = getLogger(__name__)
@@ -72,7 +72,7 @@ class ChatGPTService(LLMService):
             return func
         return decorator
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[Dict]) -> AsyncGenerator[str, None]:
+    async def get_llm_stream_response(self, context_id: str, messages: List[Dict]) -> AsyncGenerator[LLMResponse, None]:
         stream_resp = await self.openai_client.chat.completions.create(
             messages=messages,
             model=self.model,
@@ -94,7 +94,7 @@ class ChatGPTService(LLMService):
                     tool_calls[-1].arguments += t.function.arguments
 
             elif content := chunk.choices[0].delta.content:
-                yield content
+                yield LLMResponse(context_id=context_id, text=content)
 
         if tool_calls:
             # Do something before tool calls (e.g. say to user that it will take a long time)
@@ -102,6 +102,8 @@ class ChatGPTService(LLMService):
 
             # Execute tools
             for tc in tool_calls:
+                yield LLMResponse(context_id=context_id, tool_call=tc)
+
                 tool_result = await self.tool_functions[tc.name](**(json.loads(tc.arguments)))
 
                 messages.append({
@@ -122,5 +124,5 @@ class ChatGPTService(LLMService):
                     "tool_call_id": tc.id
                 })
 
-            async for chunk in self.get_llm_stream_response(context_id, messages):
-                yield chunk
+            async for llm_response in self.get_llm_stream_response(context_id, messages):
+                yield llm_response

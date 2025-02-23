@@ -21,7 +21,7 @@ class MyWebSocketAdapter(WebSocketAdapter):
         elif message_type == "data":
             b64_audio_data = message["audio_data"]
             audio_data = base64.b64decode(b64_audio_data)
-            await sts.process_audio_samples(audio_data, session_id)
+            await self.sts.process_audio_samples(audio_data, session_id)
 
         elif message_type == "stop":
             print("stop")
@@ -45,7 +45,7 @@ class MyWebSocketAdapter(WebSocketAdapter):
             })
 
 
-# Create LiteSTS instance with response handler
+# Create Speech-to-Speech pipeline
 sts = LiteSTS(
     vad_volume_db_threshold=-30,    # Adjust microphone sensitivity (Gate)
     stt_google_api_key=GOOGLE_API_KEY,
@@ -53,9 +53,10 @@ sts = LiteSTS(
     debug=True
 )
 
+# Set adapter
 adapter = MyWebSocketAdapter(sts)
 router = adapter.get_websocket_router()
 
-# Create websocket server
+# Start websocket server
 app = FastAPI()
 app.include_router(router)

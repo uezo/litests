@@ -2,7 +2,7 @@ import json
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
 from anthropic import AsyncAnthropic
-from . import LLMService, ToolCall
+from . import LLMService, LLMResponse, ToolCall
 from .context_manager import ContextManager
 
 logger = getLogger(__name__)
@@ -65,7 +65,7 @@ class ClaudeService(LLMService):
             return func
         return decorator
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
+    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         async with self.anthropic_client.messages.stream(
             messages=messages,
             system=self.system_prompt or "",
@@ -83,7 +83,7 @@ class ClaudeService(LLMService):
                 elif chunk.type == "content_block_delta":
                     if chunk.delta.type == "text_delta":
                         response_text += chunk.delta.text
-                        yield chunk.delta.text
+                        yield LLMResponse(context_id=context_id, text=chunk.delta.text)
                     elif chunk.delta.type == "input_json_delta":
                         tool_calls[-1].arguments += chunk.delta.partial_json
 
@@ -95,6 +95,8 @@ class ClaudeService(LLMService):
             #       Multiple tools will be called sequentially: user -(llm)-> tool_use -> tool_result -(llm)-> tool_use -> tool_result -(llm)-> assistant
             # Execute tools
             for tc in tool_calls:
+                yield LLMResponse(context_id=context_id, tool_call=tc)
+
                 arguments_json = json.loads(tc.arguments)
                 tool_result = await self.tool_functions[tc.name](**arguments_json)
 
@@ -117,5 +119,5 @@ class ClaudeService(LLMService):
                     }]
                 })
 
-            async for chunk in self.get_llm_stream_response(context_id, messages):
-                yield chunk
+            async for llm_response in self.get_llm_stream_response(context_id, messages):
+                yield llm_response
