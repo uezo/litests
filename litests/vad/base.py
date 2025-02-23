@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
-from typing import AsyncGenerator, Callable, Awaitable, Optional
+from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -28,4 +28,15 @@ class SpeechDetector(ABC):
 
     @abstractmethod
     async def finalize_session(self, session_id: str):
+        pass
+
+
+class SpeechDetectorDummy(SpeechDetector):
+    async def process_samples(self, samples, session_id = None):
+        pass
+
+    async def process_stream(self, input_stream, session_id = None):
+        pass
+
+    async def finalize_session(self, session_id):
         pass

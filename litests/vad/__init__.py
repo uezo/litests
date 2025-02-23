@@ -1,2 +1,2 @@
-from .base import SpeechDetector
+from .base import SpeechDetector, SpeechDetectorDummy
 from .standard import StandardSpeechDetector
