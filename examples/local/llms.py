@@ -40,23 +40,22 @@ litellm = LiteLLMService(
     model="llm_service/llm_model_name",
 )
 
+sts = LiteSTS(
+    vad_volume_db_threshold=-40,    # Adjust microphone sensitivity (Gate)
+    stt_google_api_key=GOOGLE_API_KEY,
+    llm=chatgpt,     # <- Select LLM service you want to use
+    debug=True
+)
+
+# Create adapter
+adapter = AudioDeviceAdapter(
+    sts,
+    cancel_echo=True    # Set False if you want to interrupt AI's answer
+)
+
 async def quick_start_main():
     # Uncomment below when you use GeminiService
     # await gemini.preflight()
-
-    sts = LiteSTS(
-        vad_volume_db_threshold=-40,    # Adjust microphone sensitivity (Gate)
-        stt_google_api_key=GOOGLE_API_KEY,
-        llm=litellm,     # <- Select LLM service you want to use
-        cancel_echo=True,
-        debug=True
-    )
-
-    # Create adapter
-    adapter = AudioDeviceAdapter(
-        sts,
-        cancel_echo=True    # Set False if you want to interrupt AI's answer
-    )
 
     # Start listening
     await adapter.start_listening("_")
