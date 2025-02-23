@@ -18,7 +18,7 @@ A super lightweight Speech-to-Speech framework with modular VAD, STT, LLM and TT
 You can install it with a single `pip` command:
 
 ```sh
-pip install git+https://github.com/uezo/litests
+pip install litests
 ```
 
 If you plan to use LiteSTS to handle microphone input or play audio on a local computer, make sure to install `PortAudio` and its Python binding, `PyAudio`, beforehand:
