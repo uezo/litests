@@ -21,6 +21,7 @@ class WebSocketAdapter(Adapter):
     ):
         super().__init__(sts)
         self.websockets: Dict[str, WebSocket] = {}
+        self.sessions: Dict[str, WebSocketSessionData] = {}
 
     @abstractmethod
     async def process_websocket(self, websocket: WebSocket, session_data: WebSocketSessionData):
@@ -51,5 +52,9 @@ class WebSocketAdapter(Adapter):
             finally:
                 if session_data.id:
                     await self.sts.finalize(session_data.id)
+                    if session_data.id in self.websockets:
+                        del self.websockets[session_data.id]
+                    if session_data.id in self.sessions:
+                        del self.sessions[session_data.id]
 
         return router
