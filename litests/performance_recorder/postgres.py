@@ -61,11 +61,25 @@ class PostgreSQLPerformanceRecorder(PerformanceRecorder):
                         llm_name TEXT,
                         tts_name TEXT,
                         request_text TEXT,
+                        request_files TEXT,
                         response_text TEXT,
                         response_voice_text TEXT
                     )
                     """
                 )
+
+                # Add request_files column if not exist (migration v0.3.0 -> 0.3.2)
+                cur.execute(
+                    """
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='performance_records' AND column_name='request_files'
+                    """
+                )
+                if not cur.fetchone():
+                    cur.execute(
+                        "ALTER TABLE performance_records ADD COLUMN request_files TEXT"
+                    )
+
             conn.commit()
         finally:
             conn.close()

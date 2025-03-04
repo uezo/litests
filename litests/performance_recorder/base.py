@@ -10,6 +10,7 @@ class PerformanceRecord:
     tts_name: str = None
     request_text: str = None
     response_text: str = None
+    request_files: str = None
     response_voice_text: str = None
     voice_length: float = 0
     stt_time: float = 0

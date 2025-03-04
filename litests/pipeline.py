@@ -1,3 +1,4 @@
+import json
 import logging
 from time import time
 from typing import AsyncGenerator, Tuple
@@ -91,6 +92,24 @@ class LiteSTS:
         # Performance recorder
         self.performance_recorder = performance_recorder or SQLitePerformanceRecorder()
 
+        # User custom logic
+        self._on_before_llm = self.on_before_llm_default
+        self._on_before_tts = self.on_before_tts_default
+
+    def on_before_llm(self, func):
+        self._on_before_llm = func
+        return func
+
+    def on_before_tts(self, func):
+        self._on_before_tts = func
+        return func
+
+    async def on_before_llm_default(self, context_id: str, text: str, files: list):
+        pass
+
+    async def on_before_tts_default(self, context_id: str):
+        pass
+
     async def process_audio_samples(self, samples: bytes, context_id: str):
         await self.vad.process_samples(samples, context_id)
 
@@ -133,7 +152,10 @@ class LiteSTS:
                 return
             if self.debug:
                 logger.info(f"Recognized text from request: {recognized_text}")
+        else:
+            recognized_text = ""    # Request without both text and audio (e.g. image only)
         performance.request_text = recognized_text
+        performance.request_files = json.dumps(request.files or [], ensure_ascii=False)
         performance.voice_length = request.audio_duration
         performance.stt_time = time() - start_time
 
@@ -142,7 +164,8 @@ class LiteSTS:
         performance.stop_response_time = time() - start_time
 
         # LLM
-        llm_stream = self.llm.chat_stream(request.context_id, recognized_text)
+        await self._on_before_llm(request.context_id, recognized_text, request.files)
+        llm_stream = self.llm.chat_stream(request.context_id, recognized_text, request.files)
 
         # TTS
         async def synthesize_stream() -> AsyncGenerator[Tuple[bytes, LLMResponse], None]:
@@ -163,6 +186,7 @@ class LiteSTS:
                     voice_text += llm_stream_chunk.voice_text
                     if performance.llm_first_voice_chunk_time == 0:
                         performance.llm_first_voice_chunk_time = time() - start_time
+                        await self._on_before_tts(request.context_id)
                 performance.llm_time = time() - start_time
 
                 # Parse info from LLM chunk (especially, language)

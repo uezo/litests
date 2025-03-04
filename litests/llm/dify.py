@@ -48,20 +48,27 @@ class DifyService(LLMService):
             )
         )
 
-    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
         if self.make_inputs:
-            inputs = self.make_inputs(context_id, text)
+            inputs = self.make_inputs(context_id, text, files)
         else:
             inputs = {}
 
-        return [{
+        message = {
             "inputs": inputs,
             "query": text,
             "response_mode": "streaming",
             "user": self.user,
             "auto_generate_name": False,
             "conversation_id": self.conversation_ids.get(context_id, "")
-        }]
+        }
+        if files:
+            for f in files:
+                if url := f.get("url"):
+                    files.append({"type": "image", "transfer_method": "remote_url", "url": url})
+            message["files"] = files
+        
+        return [message]
 
     async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
         # Context is managed at Dify server

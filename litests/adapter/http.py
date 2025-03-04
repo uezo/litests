@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+from typing import List
 from uuid import uuid4
 from pydantic import BaseModel
 from fastapi import APIRouter
@@ -12,18 +13,24 @@ from litests.adapter import Adapter
 logger = logging.getLogger(__name__)
 
 
+class File(BaseModel):
+    url: str
+
+
 class ChatRequest(BaseModel):
     context_id: str = None
     text: str = None
     audio_data: bytes = None
     audio_duration: float = 0
+    files: List[File] = None
 
     def to_sts_request(self) -> STSRequest:
         return STSRequest(
             context_id=self.context_id,
             text=self.text,
             audio_data=self.audio_data,
-            audio_duration=self.audio_duration
+            audio_duration=self.audio_duration,
+            files=[{"url": f.url} for f in self.files] if self.files else None
         )
 
 
@@ -39,7 +46,6 @@ class ChatChunkResponse(BaseModel):
 class HttpAdapter(Adapter):
     def __init__(self, sts: LiteSTS):
         super().__init__(sts)
-        self.final_audio = bytes()
 
     def get_api_router(self, path: str = "/chat"):
         router = APIRouter()

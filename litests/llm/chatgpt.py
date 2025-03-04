@@ -46,7 +46,7 @@ class ChatGPTService(LLMService):
         else:
             self.openai_client = openai.AsyncClient(api_key=openai_api_key, base_url=base_url)
 
-    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
@@ -57,7 +57,17 @@ class ChatGPTService(LLMService):
             histories.pop(0)
         messages.extend(histories)
 
-        messages.append({"role": "user", "content": text})
+        if files:
+            content = []
+            for f in files:
+                if url := f.get("url"):
+                    content.append({"type": "image_url", "image_url": {"url": url}})
+            if text:
+                content.append({"type": "text", "text": text})
+        else:
+            content = text
+        messages.append({"role": "user", "content": content})
+
         return messages
 
     async def update_context(self, context_id: str, messages: List[Dict], response_text: str):

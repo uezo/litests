@@ -1,6 +1,8 @@
+import base64
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
 import google.generativeai as genai
+import httpx
 from . import LLMService, LLMResponse, ToolCall
 from .context_manager import ContextManager
 
@@ -43,7 +45,13 @@ class GeminiService(LLMService):
             system_instruction=system_prompt
         )
 
-    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
+    async def download_image(self, url: str) -> bytes:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.content
+
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
         messages = []
 
         # Extract the history starting from the first message where the role is 'user'
@@ -52,7 +60,17 @@ class GeminiService(LLMService):
             histories.pop(0)
         messages.extend(histories)
 
-        messages.append({"role": "user", "parts": [{"text": text}]})
+        parts = []
+        if files:
+            for f in files:
+                if url := f.get("url"):
+                    image_bytes = await self.download_image(url)
+                    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                    parts.append({"mime_type": "image/png", "data": image_b64})
+        if text:
+            parts.append({"text": text})
+
+        messages.append({"role": "user", "parts": parts})
         return messages
 
     async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
