@@ -5,6 +5,7 @@ from litests.llm.dify import DifyService
 DIFY_API_KEY = os.getenv("DIFY_API_KEY")
 DIFY_API_KEY_AGENT = os.getenv("DIFY_API_KEY_AGENT")
 DIFY_URL = os.getenv("DIFY_URL")
+IMAGE_URL = os.getenv("IMAGE_URL")
 
 @pytest.mark.asyncio
 async def test_dify_service_simple():
@@ -50,6 +51,34 @@ async def test_dify_service_simple():
 
     # Check the response content
     assert "プリン" in full_text, "'プリン' doesn't appear in text. Context management is incorrect."
+
+
+@pytest.mark.asyncio
+async def test_dify_service_image():
+    """
+    Test DifyService to check if it can handle image and stream responses.
+    This test actually calls Dify API, so it may cost tokens.
+    """
+    service = DifyService(
+        api_key=DIFY_API_KEY,
+        user="user",
+        base_url=DIFY_URL
+    )
+    context_id = "test_context"
+
+    collected_text = []
+
+    async for resp in service.chat_stream(context_id, "これは何ですか？漢字で答えてください。", files=[{"type": "image", "url": IMAGE_URL}]):
+        collected_text.append(resp.text)
+
+    full_text = "".join(collected_text)
+    assert len(full_text) > 0, "No text was returned from the LLM."
+
+    # Check the response content
+    assert "寿司" in full_text, "寿司 is not in text."
+
+    # Check the context
+    assert context_id in service.conversation_ids
 
 
 @pytest.mark.asyncio

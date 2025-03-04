@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import List, Dict
 from .llm import ToolCall
 
 
@@ -9,6 +10,7 @@ class STSRequest:
     text: str = None
     audio_data: bytes = None
     audio_duration: float = 0
+    files: List[Dict[str, str]] = None
 
 
 @dataclass

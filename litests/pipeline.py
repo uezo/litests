@@ -1,3 +1,4 @@
+import json
 import logging
 from time import time
 from typing import AsyncGenerator, Tuple
@@ -133,7 +134,10 @@ class LiteSTS:
                 return
             if self.debug:
                 logger.info(f"Recognized text from request: {recognized_text}")
+        else:
+            recognized_text = ""    # Request without both text and audio (e.g. image only)
         performance.request_text = recognized_text
+        performance.request_files = json.dumps(request.files or [], ensure_ascii=False)
         performance.voice_length = request.audio_duration
         performance.stt_time = time() - start_time
 
@@ -142,7 +146,7 @@ class LiteSTS:
         performance.stop_response_time = time() - start_time
 
         # LLM
-        llm_stream = self.llm.chat_stream(request.context_id, recognized_text)
+        llm_stream = self.llm.chat_stream(request.context_id, recognized_text, request.files)
 
         # TTS
         async def synthesize_stream() -> AsyncGenerator[Tuple[bytes, LLMResponse], None]:

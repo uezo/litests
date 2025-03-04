@@ -7,6 +7,7 @@ from litests.llm.chatgpt import ChatGPTService, ToolCall
 
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+IMAGE_URL = os.getenv("IMAGE_URL")
 
 SYSTEM_PROMPT = """
 ## 基本設定
@@ -67,6 +68,40 @@ async def test_chatgpt_azure_service_simple():
     # Check the response content
     assert "[face:Angry]" in full_text, "Control tag doesn't appear in text."
     assert "[face:Angry]" not in full_voice, "Control tag was not removed from voice_text."
+
+    # Check the context
+    messages = await service.context_manager.get_histories(context_id)
+    assert any(m["role"] == "user" for m in messages), "User message not found in context."
+    assert any(m["role"] == "assistant" for m in messages), "Assistant message not found in context."
+
+    await service.openai_client.close()
+
+
+@pytest.mark.asyncio
+async def test_chatgpt_azure_service_image():
+    """
+    Test ChatGPTService with a basic prompt to check if it can handle image stream responses.
+    This test actually calls OpenAI API, so it may cost tokens.
+    """
+    service = ChatGPTService(
+        openai_api_key=AZURE_OPENAI_API_KEY,
+        base_url=AZURE_OPENAI_ENDPOINT,
+        system_prompt=SYSTEM_PROMPT,
+        model="azure",
+        temperature=0.5
+    )
+    context_id = f"test_context_{uuid4()}"
+
+    collected_text = []
+
+    async for resp in service.chat_stream(context_id, "これは何ですか？漢字で答えてください。", files=[{"type": "image", "url": IMAGE_URL}]):
+        collected_text.append(resp.text)
+
+    full_text = "".join(collected_text)
+    assert len(full_text) > 0, "No text was returned from the LLM."
+
+    # Check the response content
+    assert "寿司" in full_text, "寿司 is not in text."
 
     # Check the context
     messages = await service.context_manager.get_histories(context_id)

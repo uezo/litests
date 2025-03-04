@@ -7,6 +7,7 @@ from litests.llm.litellm import LiteLLMService, ToolCall
 
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 MODEL = "anthropic/claude-3-5-sonnet-latest"
+IMAGE_URL = os.getenv("IMAGE_URL")
 
 SYSTEM_PROMPT = """
 ## 基本設定
@@ -66,6 +67,37 @@ async def test_litellm_service_simple():
     # Check the response content
     assert "[face:Angry]" in full_text, "Control tag doesn't appear in text."
     assert "[face:Angry]" not in full_voice, "Control tag was not removed from voice_text."
+
+    # Check the context
+    messages = await service.context_manager.get_histories(context_id)
+    assert any(m["role"] == "user" for m in messages), "User message not found in context."
+    assert any(m["role"] == "assistant" for m in messages), "Assistant message not found in context."
+
+
+@pytest.mark.asyncio
+async def test_litellm_service_image():
+    """
+    Test LiteLLMService with a basic prompt to check if it can handle image and stream responses.
+    This test actually calls Anthropic API, so it may cost tokens.
+    """
+    service = LiteLLMService(
+        api_key=CLAUDE_API_KEY,
+        system_prompt=SYSTEM_PROMPT,
+        model=MODEL,
+        temperature=0.5
+    )
+    context_id = f"test_context_{uuid4()}"
+
+    collected_text = []
+
+    async for resp in service.chat_stream(context_id, "これは何ですか？漢字で答えてください。", files=[{"type": "image", "url": IMAGE_URL}]):
+        collected_text.append(resp.text)
+
+    full_text = "".join(collected_text)
+    assert len(full_text) > 0, "No text was returned from the LLM."
+
+    # Check the response content
+    assert "寿司" in full_text, "寿司 is not in text."
 
     # Check the context
     messages = await service.context_manager.get_histories(context_id)
