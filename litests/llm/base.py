@@ -82,7 +82,7 @@ class LLMService(ABC):
         return re.sub(self.option_split_chars_regex, r"\1|", original)
 
     @abstractmethod
-    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
         pass
 
     @abstractmethod
@@ -99,12 +99,15 @@ class LLMService(ABC):
         clean_text = clean_text.strip()
         return clean_text
 
-    async def chat_stream(self, context_id: str, text: str) -> AsyncGenerator[LLMResponse, None]:
+    async def chat_stream(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> AsyncGenerator[LLMResponse, None]:
         logger.info(f"User: {text}")
         text = self._request_filter(text)
         logger.info(f"User(Filtered): {text}")
 
-        messages = await self.compose_messages(context_id, text)
+        if not text and not files:
+            return
+
+        messages = await self.compose_messages(context_id, text, files)
         message_length_at_start = len(messages) - 1
 
         stream_buffer = ""

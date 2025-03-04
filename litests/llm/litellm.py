@@ -41,7 +41,7 @@ class LiteLLMService(LLMService):
         self.model = model
         self.system_prompt_by_user_prompt = system_prompt_by_user_prompt
 
-    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
         messages = []
         if self.system_prompt:
             if self.system_prompt_by_user_prompt:
@@ -56,7 +56,17 @@ class LiteLLMService(LLMService):
             histories.pop(0)
         messages.extend(histories)
 
-        messages.append({"role": "user", "content": text})
+        if files:
+            content = []
+            for f in files:
+                if url := f.get("url"):
+                    content.append({"type": "image_url", "image_url": {"url": url}})
+            if text:
+                content.append({"type": "text", "text": text})
+        else:
+            content = text
+        messages.append({"role": "user", "content": content})
+
         return messages
 
     async def update_context(self, context_id: str, messages: List[Dict], response_text: str):

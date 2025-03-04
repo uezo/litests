@@ -42,7 +42,7 @@ class ClaudeService(LLMService):
         )
         self.max_tokens = max_tokens
 
-    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
         messages = []
 
         # Extract the history starting from the first message where the role is 'user'
@@ -51,7 +51,15 @@ class ClaudeService(LLMService):
             histories.pop(0)
         messages.extend(histories)
 
-        messages.append({"role": "user", "content": [{"type": "text", "text": text}]})
+        content = []
+        if files:
+            for f in files:
+                if url := f.get("url"):
+                    content.append({"type": "image", "source": {"type": "url", "url": url}})
+        if text:
+            content.append({"type": "text", "text": text})
+        messages.append({"role": "user", "content": content})
+
         return messages
 
     async def update_context(self, context_id: str, messages: List[Dict], response_text: str):

@@ -40,11 +40,21 @@ class SQLitePerformanceRecorder(PerformanceRecorder):
                         llm_name TEXT,
                         tts_name TEXT,
                         request_text TEXT,
+                        request_files TEXT,
                         response_text TEXT,
                         response_voice_text TEXT
                     )
                     """
                 )
+
+                # Add request_files column if not exist (migration v0.3.0 -> 0.3.2)
+                cursor = conn.execute("PRAGMA table_info(performance_records)")
+                columns = [row[1] for row in cursor.fetchall()]
+                if "request_files" not in columns:
+                    conn.execute(
+                        "ALTER TABLE performance_records ADD COLUMN request_files TEXT"
+                    )
+
         finally:
             conn.close()
 
