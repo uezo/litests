@@ -43,3 +43,8 @@ class SpeechSynthesizer(ABC):
 
     async def close(self):
         await self.http_client.aclose()
+
+
+class SpeechSynthesizerDummy(SpeechSynthesizer):
+    async def synthesize(self, text: str, style_info: dict = None, language: str = None) -> bytes:
+        return None

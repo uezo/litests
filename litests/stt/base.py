@@ -36,3 +36,8 @@ class SpeechRecognizer(ABC):
 
     async def close(self):
         await self.http_client.aclose()
+
+
+class SpeechRecognizerDummy(SpeechRecognizer):
+    async def transcribe(self, data: bytes) -> str:
+        pass
