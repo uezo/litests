@@ -1,1 +1,1 @@
-from .base import SpeechRecognizer
+from .base import SpeechRecognizer, SpeechRecognizerDummy

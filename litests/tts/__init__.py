@@ -1,1 +1,1 @@
-from .base import SpeechSynthesizer
+from .base import SpeechSynthesizer, SpeechSynthesizerDummy
