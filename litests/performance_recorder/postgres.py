@@ -47,6 +47,7 @@ class PostgreSQLPerformanceRecorder(PerformanceRecorder):
                     CREATE TABLE IF NOT EXISTS performance_records (
                         id SERIAL PRIMARY KEY,
                         created_at TIMESTAMPTZ,
+                        user_id TEXT,
                         context_id TEXT,
                         voice_length REAL,
                         stt_time REAL,
@@ -78,6 +79,18 @@ class PostgreSQLPerformanceRecorder(PerformanceRecorder):
                 if not cur.fetchone():
                     cur.execute(
                         "ALTER TABLE performance_records ADD COLUMN request_files TEXT"
+                    )
+
+                # Add user_id column if not exist (migration v0.3.2 -> 0.3.3)
+                cur.execute(
+                    """
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='performance_records' AND column_name='user_id'
+                    """
+                )
+                if not cur.fetchone():
+                    cur.execute(
+                        "ALTER TABLE performance_records ADD COLUMN user_id TEXT"
                     )
 
             conn.commit()
