@@ -95,6 +95,7 @@ class LiteSTS:
         # User custom logic
         self._on_before_llm = self.on_before_llm_default
         self._on_before_tts = self.on_before_tts_default
+        self._on_finish = self.on_finish_default
 
     def on_before_llm(self, func):
         self._on_before_llm = func
@@ -103,11 +104,18 @@ class LiteSTS:
     def on_before_tts(self, func):
         self._on_before_tts = func
         return func
+    
+    def on_finish(self, func):
+        self._on_finish = func
+        return func
 
     async def on_before_llm_default(self, context_id: str, text: str, files: list):
         pass
 
     async def on_before_tts_default(self, context_id: str):
+        pass
+
+    async def on_finish_default(self, request: STSRequest, response: STSResponse):
         pass
 
     async def process_audio_samples(self, samples: bytes, context_id: str):
@@ -132,7 +140,8 @@ class LiteSTS:
     async def invoke(self, request: STSRequest) -> AsyncGenerator[STSResponse, None]:
         start_time = time()
         performance = PerformanceRecord(
-            request.context_id,
+            user_id=request.user_id,
+            context_id=request.context_id,
             stt_name=self.stt.__class__.__name__,
             llm_name=self.llm.__class__.__name__,
             tts_name=self.tts.__class__.__name__
@@ -154,6 +163,8 @@ class LiteSTS:
                 logger.info(f"Recognized text from request: {recognized_text}")
         else:
             recognized_text = ""    # Request without both text and audio (e.g. image only)
+        request.text = recognized_text
+
         performance.request_text = recognized_text
         performance.request_files = json.dumps(request.files or [], ensure_ascii=False)
         performance.voice_length = request.audio_duration
@@ -229,12 +240,19 @@ class LiteSTS:
                 voice_text=llm_stream_chunk.voice_text,
                 audio_data=audio_chunk
             )
+
         performance.response_text = response_text
-
-        yield STSResponse(type="final", context_id=request.context_id, text=response_text)
-
         performance.total_time = time() - start_time
         self.performance_recorder.record(performance)
+
+        final_response = STSResponse(
+            type="final",
+            context_id=request.context_id,
+            text=response_text,
+            voice_text=performance.response_voice_text
+        )
+        await self._on_finish(request, final_response)
+        yield final_response
 
     async def finalize(self, context_id: str):
         await self.vad.finalize_session(context_id)

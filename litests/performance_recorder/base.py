@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 @dataclass
 class PerformanceRecord:
+    user_id: str = None
     context_id: str = None
     stt_name: str = None
     llm_name: str = None

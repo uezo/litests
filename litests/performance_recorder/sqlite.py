@@ -26,6 +26,7 @@ class SQLitePerformanceRecorder(PerformanceRecorder):
                     CREATE TABLE IF NOT EXISTS performance_records (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         created_at TIMESTAMP,
+                        user_id TEXT,
                         context_id TEXT,
                         voice_length REAL,
                         stt_time REAL,
@@ -53,6 +54,14 @@ class SQLitePerformanceRecorder(PerformanceRecorder):
                 if "request_files" not in columns:
                     conn.execute(
                         "ALTER TABLE performance_records ADD COLUMN request_files TEXT"
+                    )
+
+                # Add user_id column if not exist (migration v0.3.2 -> 0.3.3)
+                cursor = conn.execute("PRAGMA table_info(performance_records)")
+                columns = [row[1] for row in cursor.fetchall()]
+                if "user_id" not in columns:
+                    conn.execute(
+                        "ALTER TABLE performance_records ADD COLUMN user_id TEXT"
                     )
 
         finally:

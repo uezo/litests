@@ -308,96 +308,35 @@ tts = SpeechGatewaySpeechSynthesizer(
 ```
 
 
-## 🧩 Make custom modules
+## 💾 Long-term Memory
 
-By creating modules that inherit the interfaces for VAD, STT, LLM, TTS, and the Response Handler, you can integrate them into the pipeline. Below, only the interfaces are introduced; for implementation details, please refer to the existing modules included in the repository.
+LiteSTS doesn't have long-term memory features itself but can work with libraries for long-term memory like mem0, zep, [ChatMemory](https://github.com/uezo/chatmemory) etc.
 
-
-### VAD
-
-Make the class that implements `process_samples` and `process_stream` methods.
+Here is an example for ChatMemory.
 
 ```python
-class SpeechDetector(ABC):
-    @abstractmethod
-    async def process_samples(self, samples: bytes, session_id: str = None):
-        pass
+import httpx
 
-    @abstractmethod
-    async def process_stream(self, input_stream: AsyncGenerator[bytes, None], session_id: str = None):
-        pass
+@sts.on_finish
+async def on_finish(request: STSRequest, response: STSResponse):
+    if not not request.context_id or not request.text or not response.voice_text:
+        return
+
+    # Send history to ChatMemory service (We recommend async call)
+    httpx.post(
+        url=f"http://127.0.0.1:8000/history",   # ChatMemory API
+        json={
+            "user_id": request.user_id or "litests",
+            "session_id": request.context_id,
+            "messages": [
+                {"role": "user", "content": request.text},
+                {"role": "assistant", "content": response.voice_text}
+            ]
+        }
+    )
 ```
 
-### STT
-
-Make the class that implements just `transcribe` method.
-
-```python
-class SpeechRecognizer(ABC):
-    @abstractmethod
-    async def transcribe(self, data: bytes) -> str:
-        pass
-```
-
-### LLM
-
-Make the class that implements `compose_messages`, `update_context` and `get_llm_stream_response` methods.
-
-```python
-class LLMService(ABC):
-    @abstractmethod
-    async def compose_messages(self, context_id: str, text: str) -> List[Dict]:
-        pass
-
-    @abstractmethod
-    async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
-        pass
-
-    @abstractmethod
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[str, None]:
-        pass
-```
-
-### TTS
-
-Make the class that implements just `synthesize` method.
-
-```python
-class SpeechSynthesizer(ABC):
-    @abstractmethod
-    async def synthesize(self, text: str) -> bytes:
-        pass
-```
-
-### Adapter
-
-Make the class that implements `handle_response` and `stop_response` methods.
-
-```python
-class Adapter(ABC):
-    @abstractmethod
-    async def handle_response(self, response: STSResponse):
-        pass
-
-    @abstractmethod
-    async def stop_response(self, context_id: str):
-        pass
-```
-
-### Context Manager
-
-Make the class that implements `get_histories` and `add_histories` methods.
-
-```python
-class ContextManager(ABC):
-    @abstractmethod
-    async def get_histories(self, context_id: str, limit: int = 100) -> List[Dict]:
-        pass
-
-    @abstractmethod
-    async def add_histories(self, context_id: str, data_list: List[Dict], context_schema: str = None):
-        pass
-```
+To retrieve the memory, register calling `/search` as a tool.
 
 
 ## 🔌 WebSocket
