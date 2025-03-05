@@ -6,6 +6,7 @@ from .llm import ToolCall
 @dataclass
 class STSRequest:
     type: str = "start"
+    user_id: str = None
     context_id: str = None
     text: str = None
     audio_data: bytes = None
@@ -16,7 +17,8 @@ class STSRequest:
 @dataclass
 class STSResponse:
     type: str
-    context_id: str
+    user_id: str = None
+    context_id: str = None
     text: str = None
     voice_text: str = None
     audio_data: bytes = None

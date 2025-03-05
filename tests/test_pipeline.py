@@ -1,9 +1,12 @@
 import os
 import pytest
 
+from litests.vad import SpeechDetectorDummy
 from litests.vad.standard import StandardSpeechDetector
+from litests.stt import SpeechRecognizerDummy
 from litests.stt.google import GoogleSpeechRecognizer
 from litests.llm.chatgpt import ChatGPTService
+from litests.tts import SpeechSynthesizerDummy
 from litests.tts.voicevox import VoicevoxSpeechSynthesizer
 from litests.performance_recorder.sqlite import SQLitePerformanceRecorder
 from litests.models import STSRequest, STSResponse
@@ -102,7 +105,7 @@ async def test_lite_sts_pipeline():
     context_id = "test_pipeline_nippon"
 
     # Invoke pipeline with the first request (Ask capital of Japan)
-    await adapter.handle_request(STSRequest(context_id=context_id, audio_data=await get_input_voice("日本の首都は？")))
+    await adapter.handle_request(STSRequest(context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("日本の首都は？")))
 
     # Check output voice audio
     final_audio = adapter.final_audio
@@ -111,7 +114,7 @@ async def test_lite_sts_pipeline():
     assert "東京" in output_text, f"Expected '東京' in recognized text, but got: {output_text}"
 
     # Invoke pipeline with the successive request (Ask about of US, without using the word 'capital' to check context)
-    await adapter.handle_request(STSRequest(context_id=context_id, audio_data=await get_input_voice("アメリカは？")))
+    await adapter.handle_request(STSRequest(context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("アメリカは？")))
 
     # Check output voice audio
     final_audio = adapter.final_audio
@@ -122,3 +125,24 @@ async def test_lite_sts_pipeline():
     await lite_sts.shutdown()
     await voicevox_for_input.close()
     await stt_for_final.close()
+
+@pytest.mark.asyncio
+async def test_lite_sts_pipeline_novoice():
+    # Initialize pipeline
+    lite_sts = LiteSTS(
+        vad=SpeechDetectorDummy(),
+        stt=SpeechRecognizerDummy(),
+        llm=ChatGPTService(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            model="gpt-4o",
+        ),
+        tts=SpeechSynthesizerDummy(),
+        performance_recorder=SQLitePerformanceRecorder(),  # DB記録
+        debug=True
+    )
+
+    async for response in lite_sts.invoke(STSRequest(context_id="test_pipeline_novoice", user_id="litests_user", text="こんにちは")):
+        if response.type == "chunk" or response.type == "final":
+            assert response.text is not None and response.text != ""
+            assert response.voice_text is not None and response.voice_text != ""
+            assert response.audio_data is None
