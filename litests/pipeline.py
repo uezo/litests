@@ -1,6 +1,7 @@
 import json
 import logging
 from time import time
+from uuid import uuid4
 from typing import AsyncGenerator, Tuple
 from .models import STSRequest, STSResponse
 from .vad import SpeechDetector, StandardSpeechDetector
@@ -12,6 +13,8 @@ from .tts import SpeechSynthesizer
 from .tts.voicevox import VoicevoxSpeechSynthesizer
 from .performance_recorder import PerformanceRecord, PerformanceRecorder
 from .performance_recorder.sqlite import SQLitePerformanceRecorder
+from .voice_recorder import VoiceRecorder, RequestVoice, ResponseVoices
+from .voice_recorder.file import FileVoiceRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,8 @@ class LiteSTS:
         tts_voicevox_url: str = "http://127.0.0.1:50021",
         tts_voicevox_speaker: int = 46,
         performance_recorder: PerformanceRecorder = None,
+        voice_recorder: VoiceRecorder = None,
+        voice_recorder_enabled: bool = True,
         debug: bool = False
     ):
         # Logger
@@ -92,6 +97,13 @@ class LiteSTS:
         # Performance recorder
         self.performance_recorder = performance_recorder or SQLitePerformanceRecorder()
 
+        # Voice recorder
+        self.voice_recorder = voice_recorder or FileVoiceRecorder(
+            sample_rate=stt_sample_rate
+        )
+        self.voice_recorder_enabled = voice_recorder_enabled
+        self.voice_recorder_response_audio_format = "wav"
+
         # User custom logic
         self._on_before_llm = self.on_before_llm_default
         self._on_before_tts = self.on_before_tts_default
@@ -139,7 +151,9 @@ class LiteSTS:
 
     async def invoke(self, request: STSRequest) -> AsyncGenerator[STSResponse, None]:
         start_time = time()
+        transaction_id = str(uuid4())
         performance = PerformanceRecord(
+            transaction_id=transaction_id,
             user_id=request.user_id,
             context_id=request.context_id,
             stt_name=self.stt.__class__.__name__,
@@ -153,6 +167,8 @@ class LiteSTS:
             if self.debug:
                 logger.info(f"Use text in request: {recognized_text}")
         elif request.audio_data:
+            if self.voice_recorder_enabled:
+                await self.voice_recorder.record(RequestVoice(transaction_id, request.audio_data))
             # Speech-to-Text
             recognized_text = await self.stt.transcribe(request.audio_data)
             if not recognized_text:
@@ -223,6 +239,7 @@ class LiteSTS:
         yield STSResponse(type="start", context_id=request.context_id)
 
         response_text = ""
+        response_audios = []
         async for audio_chunk, llm_stream_chunk in synthesize_stream():
             if llm_stream_chunk.tool_call:
                 yield STSResponse(
@@ -233,6 +250,9 @@ class LiteSTS:
                 continue
 
             response_text += llm_stream_chunk.text
+            if audio_chunk:
+                response_audios.append(audio_chunk)
+
             yield STSResponse(
                 type="chunk",
                 context_id=llm_stream_chunk.context_id,
@@ -251,6 +271,11 @@ class LiteSTS:
             text=response_text,
             voice_text=performance.response_voice_text
         )
+
+        if self.voice_recorder_enabled:
+            await self.voice_recorder.record(ResponseVoices(
+                transaction_id, response_audios, self.voice_recorder_response_audio_format
+            ))
         await self._on_finish(request, final_response)
         yield final_response
 

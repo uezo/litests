@@ -38,6 +38,18 @@ class PostgreSQLPerformanceRecorder(PerformanceRecorder):
     def connect_db(self):
         return psycopg2.connect(**self.connection_params)
 
+    def add_column_if_not_exist(self, cur, column_name):
+        cur.execute(
+            f"""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='performance_records' AND column_name='{column_name}'
+            """
+        )
+        if not cur.fetchone():
+            cur.execute(
+                f"ALTER TABLE performance_records ADD COLUMN {column_name} TEXT"
+            )
+
     def init_db(self):
         conn = self.connect_db()
         try:
@@ -47,6 +59,7 @@ class PostgreSQLPerformanceRecorder(PerformanceRecorder):
                     CREATE TABLE IF NOT EXISTS performance_records (
                         id SERIAL PRIMARY KEY,
                         created_at TIMESTAMPTZ,
+                        transaction_id TEXT,
                         user_id TEXT,
                         context_id TEXT,
                         voice_length REAL,
@@ -70,28 +83,19 @@ class PostgreSQLPerformanceRecorder(PerformanceRecorder):
                 )
 
                 # Add request_files column if not exist (migration v0.3.0 -> 0.3.2)
-                cur.execute(
-                    """
-                    SELECT column_name FROM information_schema.columns
-                    WHERE table_name='performance_records' AND column_name='request_files'
-                    """
-                )
-                if not cur.fetchone():
-                    cur.execute(
-                        "ALTER TABLE performance_records ADD COLUMN request_files TEXT"
-                    )
+                self.add_column_if_not_exist(cur, "request_files")
 
                 # Add user_id column if not exist (migration v0.3.2 -> 0.3.3)
-                cur.execute(
-                    """
-                    SELECT column_name FROM information_schema.columns
-                    WHERE table_name='performance_records' AND column_name='user_id'
-                    """
-                )
-                if not cur.fetchone():
-                    cur.execute(
-                        "ALTER TABLE performance_records ADD COLUMN user_id TEXT"
-                    )
+                self.add_column_if_not_exist(cur, "user_id")
+
+                # Add transaction_id column if not exist (migration v0.3.3 -> 0.3.4)
+                self.add_column_if_not_exist(cur, "transaction_id")
+
+                # Create index
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON performance_records (created_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_transaction_id ON performance_records (transaction_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON performance_records (user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_context_id ON performance_records (context_id)")
 
             conn.commit()
         finally:
