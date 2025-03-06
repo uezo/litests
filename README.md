@@ -358,9 +358,9 @@ Refer to `examples/websocket`.
 **NOTE**: To make the core mechanism easier to understand, exception handling and resource cleanup have been omitted. If you plan to use this in a production service, be sure to implement these as well.
 
 
-## 📈 Performance Recorder
+## 📈 Performance Recorder and Voice Recorder
 
-Records the time taken for each component in the Speech-to-Speech pipeline, from invocation to completion.
+Performance Recorder records the time taken for each component in the Speech-to-Speech pipeline, from invocation to completion.
 
 The recorded metrics include:
 
@@ -376,3 +376,7 @@ The recorded metrics include:
 The key metric is `tts_first_chunk_time`, which measures the time between when the user finishes speaking and when the system begins its response.
 
 By default, SQLite is used for storing data, but you can implement a custom recorder by using the `PerformanceRecorder` interface.
+
+Voice Recorder records the audio data of request and response voices. This feature allows you to check what audio was recognized and whether the synthesized speech was pronounced correctly.
+
+By default, the audio data is stored in the file system. We also provide the one that stores data to Azure Blob Storage. You can disable voice recorder by setting `voice_recorder_enabled=True` to LiteSTS pipeline instance.
