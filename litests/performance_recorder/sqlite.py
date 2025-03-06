@@ -26,6 +26,7 @@ class SQLitePerformanceRecorder(PerformanceRecorder):
                     CREATE TABLE IF NOT EXISTS performance_records (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         created_at TIMESTAMP,
+                        transaction_id TEXT,
                         user_id TEXT,
                         context_id TEXT,
                         voice_length REAL,
@@ -48,21 +49,27 @@ class SQLitePerformanceRecorder(PerformanceRecorder):
                     """
                 )
 
-                # Add request_files column if not exist (migration v0.3.0 -> 0.3.2)
                 cursor = conn.execute("PRAGMA table_info(performance_records)")
                 columns = [row[1] for row in cursor.fetchall()]
+
+                # Add request_files column if not exist (migration v0.3.0 -> 0.3.2)
                 if "request_files" not in columns:
-                    conn.execute(
-                        "ALTER TABLE performance_records ADD COLUMN request_files TEXT"
-                    )
+                    conn.execute("ALTER TABLE performance_records ADD COLUMN request_files TEXT")
 
                 # Add user_id column if not exist (migration v0.3.2 -> 0.3.3)
-                cursor = conn.execute("PRAGMA table_info(performance_records)")
-                columns = [row[1] for row in cursor.fetchall()]
                 if "user_id" not in columns:
-                    conn.execute(
-                        "ALTER TABLE performance_records ADD COLUMN user_id TEXT"
-                    )
+                    conn.execute("ALTER TABLE performance_records ADD COLUMN user_id TEXT")
+
+                # Add transaction_id column if not exist (migration v0.3.3 -> 0.3.4)
+                if "transaction_id" not in columns:
+                    print("add column: transaction_id")
+                    conn.execute("ALTER TABLE performance_records ADD COLUMN transaction_id TEXT")
+
+                # Create index
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON performance_records (created_at)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_transaction_id ON performance_records (transaction_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON performance_records (user_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_context_id ON performance_records (context_id)")
 
         finally:
             conn.close()
