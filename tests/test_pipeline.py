@@ -1,3 +1,4 @@
+import asyncio
 import os
 import pytest
 
@@ -125,6 +126,122 @@ async def test_lite_sts_pipeline():
     await lite_sts.shutdown()
     await voicevox_for_input.close()
     await stt_for_final.close()
+
+
+@pytest.mark.asyncio
+async def test_lite_sts_pipeline_wakeword():
+    # TTS for input audio instead of human's speech
+    voicevox_for_input = VoicevoxSpeechSynthesizer(
+        base_url="http://127.0.0.1:50021",
+        speaker=46,
+        debug=True
+    )
+
+    async def get_input_voice(text: str):
+        return await voicevox_for_input.synthesize(text)
+
+    # STT for output audio instead of human's listening
+    stt_for_final = GoogleSpeechRecognizer(
+        google_api_key=os.getenv("GOOGLE_API_KEY"),
+        sample_rate=INPUT_VOICE_SAMPLE_RATE,
+        language="ja-JP",
+        debug=True
+    )
+
+    async def get_output_text(voice: bytes):
+        return await stt_for_final.transcribe(voice)
+
+    # Initialize pipeline
+    lite_sts = LiteSTS(
+        vad=StandardSpeechDetector(
+            volume_db_threshold=-50.0,
+            silence_duration_threshold=0.5,
+            sample_rate=INPUT_VOICE_SAMPLE_RATE,
+            debug=True
+        ),
+        stt=GoogleSpeechRecognizer(
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            sample_rate=INPUT_VOICE_SAMPLE_RATE,
+            language="ja-JP",
+            debug=True
+        ),
+        llm=ChatGPTService(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            model="gpt-4o",
+        ),
+        tts=VoicevoxSpeechSynthesizer(
+            base_url="http://127.0.0.1:50021",
+            speaker=46,
+            debug=True
+        ),
+        wakewords=["こんにちは"],
+        wakeword_timeout=10,
+        performance_recorder=SQLitePerformanceRecorder(),  # DB記録
+        debug=True
+    )
+
+    # Adapter for test
+    adapter = RecordingAdapter(lite_sts)
+
+    context_id = "test_pipeline_nippon"
+
+    # First request without wakeword: not invoked
+    await adapter.handle_request(STSRequest(
+        context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("もしもし")
+    ))
+
+    # Check no voice generated
+    assert adapter.final_audio is b""
+
+    # Second request with wakeword: invoked
+    await adapter.handle_request(STSRequest(
+        context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("やあ、こんにちは！ところで日本の首都は？")
+    ))
+
+    # Check output voice audio
+    final_audio = adapter.final_audio
+    assert len(final_audio) > 0, "No final audio was captured by the response handler."
+    output_text = await get_output_text(final_audio)
+    assert "東京" in output_text, f"Expected '東京' in recognized text, but got: {output_text}"
+    adapter.final_audio = b""
+
+    # Third request without wakeword, within wakeword timeout: invoked
+    await adapter.handle_request(STSRequest(
+        context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("アメリカは？")
+    ))
+
+    # Check output voice audio
+    final_audio = adapter.final_audio
+    assert len(final_audio) > 0, "No final audio was captured by the response handler."
+    output_text = await get_output_text(final_audio)
+    assert "ワシントン" in output_text, f"Expected 'ワシントン' in recognized text, but got: {output_text}"
+    adapter.final_audio = b""
+
+    # Wait for timeout
+    await asyncio.sleep(10)
+
+    # Fourth request without wakeword, timeout: not invoked
+    await adapter.handle_request(STSRequest(
+        context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("じゃあフランスは？")
+    ))
+
+    # Check no voice generated
+    assert adapter.final_audio is b""
+
+    # Second request with wakeword: invoked
+    await adapter.handle_request(STSRequest(
+        context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("こんにちは。ドイツはどうだろうか？")
+    ))
+    final_audio = adapter.final_audio
+    assert len(final_audio) > 0, "No final audio was captured by the response handler."
+    output_text = await get_output_text(final_audio)
+    assert "ベルリン" in output_text, f"Expected 'ベルリン' in recognized text, but got: {output_text}"
+    adapter.final_audio = b""
+
+    await lite_sts.shutdown()
+    await voicevox_for_input.close()
+    await stt_for_final.close()
+
 
 @pytest.mark.asyncio
 async def test_lite_sts_pipeline_novoice():

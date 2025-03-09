@@ -1,8 +1,8 @@
 import json
 import logging
 from time import time
+from typing import AsyncGenerator, Tuple, List
 from uuid import uuid4
-from typing import AsyncGenerator, Tuple
 from .models import STSRequest, STSResponse
 from .vad import SpeechDetector, StandardSpeechDetector
 from .stt import SpeechRecognizer
@@ -38,6 +38,8 @@ class LiteSTS:
         tts: SpeechSynthesizer = None,
         tts_voicevox_url: str = "http://127.0.0.1:50021",
         tts_voicevox_speaker: int = 46,
+        wakewords: List[str] = None,
+        wakeword_timeout: float = 60.0,
         performance_recorder: PerformanceRecorder = None,
         voice_recorder: VoiceRecorder = None,
         voice_recorder_enabled: bool = True,
@@ -88,6 +90,11 @@ class LiteSTS:
             speaker=tts_voicevox_speaker,
             debug=debug
         )
+
+        # Wakeword
+        self.wakewords = wakewords
+        self.wakeword_timeout = wakeword_timeout
+        self.last_request_at = {}
 
         # Response handler
         self.handle_response = self.handle_response_default
@@ -149,6 +156,29 @@ class LiteSTS:
     async def stop_response_default(self, context_id: str):
         logger.info(f"Stop response: {context_id}")
 
+    def is_awake(self, request: STSRequest) -> bool:
+        now = time()
+
+        if not self.wakewords:
+            # Always return True if no wakewords are registered
+            return True
+
+        last_request_at = self.last_request_at.get(request.context_id) or 0
+
+        if self.wakeword_timeout > now - last_request_at:
+            # Update timestamp and return True if not timeout
+            print(f"still awake: {now - last_request_at}")
+            self.last_request_at[request.context_id] = now
+            return True
+
+        for ww in self.wakewords:
+            if ww in request.text:
+                logger.info(f"Wake by '{ww}': {request.text}")
+                self.last_request_at[request.context_id] = now
+                return True
+
+        return False
+
     async def invoke(self, request: STSRequest) -> AsyncGenerator[STSResponse, None]:
         start_time = time()
         transaction_id = str(uuid4())
@@ -181,18 +211,21 @@ class LiteSTS:
             recognized_text = ""    # Request without both text and audio (e.g. image only)
         request.text = recognized_text
 
-        performance.request_text = recognized_text
+        performance.request_text = request.text
         performance.request_files = json.dumps(request.files or [], ensure_ascii=False)
         performance.voice_length = request.audio_duration
         performance.stt_time = time() - start_time
+
+        if not self.is_awake(request):
+            request.text = None
 
         # Stop on-going response before new response
         await self.stop_response(request.context_id)
         performance.stop_response_time = time() - start_time
 
         # LLM
-        await self._on_before_llm(request.context_id, recognized_text, request.files)
-        llm_stream = self.llm.chat_stream(request.context_id, recognized_text, request.files)
+        await self._on_before_llm(request.context_id, request.text, request.files)
+        llm_stream = self.llm.chat_stream(request.context_id, request.text, request.files)
 
         # TTS
         async def synthesize_stream() -> AsyncGenerator[Tuple[bytes, LLMResponse], None]:
@@ -280,6 +313,8 @@ class LiteSTS:
         yield final_response
 
     async def finalize(self, context_id: str):
+        if context_id in self.last_request_at:
+            del self.last_request_at[context_id]
         await self.vad.finalize_session(context_id)
 
     async def shutdown(self):
