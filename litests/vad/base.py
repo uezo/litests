@@ -15,7 +15,7 @@ class SpeechDetector(ABC):
         self._on_speech_detected = func
         return func
 
-    async def on_speech_detected_default(data: bytes, recorded_duration: float, session_id: str):
+    async def on_speech_detected_default(data: bytes, recorded_duration: float, session_id: str, session_data: dict):
         logger.info(f"Speech detected: len={recorded_duration} sec")
 
     @abstractmethod

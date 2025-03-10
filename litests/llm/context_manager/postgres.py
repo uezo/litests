@@ -132,3 +132,35 @@ class PostgreSQLContextManager(ContextManager):
 
         finally:
             conn.close()
+
+    async def get_last_created_at(self, context_id: str) -> datetime:
+        conn = self.connect_db()
+        try:
+            sql = """
+            SELECT created_at
+            FROM chat_histories
+            WHERE context_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute(sql, (context_id,))
+                row = cursor.fetchone()
+
+                if row and row["created_at"]:
+                    last_created_at = row["created_at"]
+                    if last_created_at.tzinfo is None:
+                        last_created_at = last_created_at.replace(tzinfo=timezone.utc)
+                    else:
+                        last_created_at = last_created_at.astimezone(timezone.utc)
+                else:
+                    last_created_at = datetime.min.replace(tzinfo=timezone.utc)
+
+                return last_created_at
+
+        except Exception as ex:
+            logger.error(f"Error at get_last_created_at: {ex}")
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+        finally:
+            conn.close()
