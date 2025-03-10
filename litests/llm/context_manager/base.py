@@ -17,6 +17,10 @@ class ContextManager(ABC):
     async def add_histories(self, context_id: str, data_list: List[Dict], context_schema: str = None):
         pass
 
+    @abstractmethod
+    async def get_last_created_at(self, context_id: str) -> datetime:
+        pass
+
 
 class SQLiteContextManager(ContextManager):
     def __init__(self, db_path="context.db", context_timeout=3600):
@@ -126,6 +130,33 @@ class SQLiteContextManager(ContextManager):
         except Exception as ex:
             logger.error(f"Error at add_histories: {ex}")
             conn.rollback()
+
+        finally:
+            conn.close()
+
+    async def get_last_created_at(self, context_id: str) -> datetime:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            sql = """
+            SELECT created_at
+            FROM chat_histories
+            WHERE context_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """
+            cursor = conn.cursor()
+            cursor.execute(sql, (context_id,))
+            row = cursor.fetchone()
+            if row:
+                last_created_at = datetime.fromisoformat(row[0])
+            else:
+                last_created_at = datetime.min
+
+            return last_created_at.replace(tzinfo=timezone.utc)
+
+        except Exception as ex:
+            logger.error(f"Error at get_last_created_at: {ex}")
+            return datetime.min.replace(tzinfo=timezone.utc)
 
         finally:
             conn.close()

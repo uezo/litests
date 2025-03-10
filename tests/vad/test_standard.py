@@ -28,7 +28,7 @@ def detector(test_output_dir):
     )
 
     @detector.on_speech_detected
-    async def on_speech_detected(recorded_data: bytes, recorded_duration: float, session_id: str):
+    async def on_speech_detected(recorded_data: bytes, recorded_duration: float, session_id: str, session_data: dict):
         output_file = test_output_dir / f"speech_{session_id}.pcm"
         with open(output_file, "wb") as f:
             f.write(recorded_data)
@@ -221,3 +221,18 @@ async def test_volume_threshold_change(detector, test_output_dir):
 
     session = detector.get_session(session_id)
     assert session.is_recording is True
+
+
+def test_session_data(detector):
+    session_id_1 = "session_id_1"
+    session_id_2 = "session_id_2"
+
+    detector.set_session_data(session_id_1, "key", "val")
+    assert detector.recording_sessions.get(session_id_1) is None
+
+    detector.set_session_data(session_id_1, "key1", "val1", create_session=True)
+    assert detector.recording_sessions.get(session_id_1).data == {"key1": "val1"}
+    detector.set_session_data(session_id_1, "key2", "val2")
+    assert detector.recording_sessions.get(session_id_1).data == {"key1": "val1", "key2": "val2"}
+
+    assert detector.recording_sessions.get(session_id_2) is None
