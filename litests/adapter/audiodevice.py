@@ -50,7 +50,7 @@ class AudioDeviceAdapter(Adapter):
         self.response_handler_thread.start()
 
     # Request
-    async def start_listening(self, session_id: str):
+    async def start_listening(self, session_id: str, user_id: str = None):
         async def start_microphone_stream() -> AsyncGenerator[bytes, None]:
             p = pyaudio.PyAudio()
             pyaudio_stream = p.open(
@@ -64,6 +64,8 @@ class AudioDeviceAdapter(Adapter):
                 yield pyaudio_stream.read(self.input_chunk_size)
                 await asyncio.sleep(0.0001)
 
+        if user_id:
+            self.sts.vad.set_session_data(session_id, "user_id", user_id, True)
         await self.sts.vad.process_stream(start_microphone_stream(), session_id)
 
     # Response

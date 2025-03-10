@@ -1,8 +1,9 @@
+from datetime import datetime, timezone
 import json
 import logging
 from time import time
+from typing import AsyncGenerator, Tuple, List
 from uuid import uuid4
-from typing import AsyncGenerator, Tuple
 from .models import STSRequest, STSResponse
 from .vad import SpeechDetector, StandardSpeechDetector
 from .stt import SpeechRecognizer
@@ -38,6 +39,8 @@ class LiteSTS:
         tts: SpeechSynthesizer = None,
         tts_voicevox_url: str = "http://127.0.0.1:50021",
         tts_voicevox_speaker: int = 46,
+        wakewords: List[str] = None,
+        wakeword_timeout: float = 60.0,
         performance_recorder: PerformanceRecorder = None,
         voice_recorder: VoiceRecorder = None,
         voice_recorder_enabled: bool = True,
@@ -62,8 +65,15 @@ class LiteSTS:
         )
 
         @self.vad.on_speech_detected
-        async def on_speech_detected(data: bytes, recorded_duration: float, session_id: str):
-            async for response in self.invoke(STSRequest(context_id=session_id, audio_data=data, audio_duration=recorded_duration)):
+        async def on_speech_detected(data: bytes, recorded_duration: float, session_id: str, session_data: dict):
+            async for response in self.invoke(STSRequest(
+                user_id=session_data.get("user_id"),
+                context_id=session_data.get("context_id"),
+                audio_data=data,
+                audio_duration=recorded_duration
+            )):
+                if response.type == "start":
+                    self.vad.set_session_data(session_id, "context_id", response.context_id)
                 await self.handle_response(response)
 
         # Speech-to-Text
@@ -88,6 +98,10 @@ class LiteSTS:
             speaker=tts_voicevox_speaker,
             debug=debug
         )
+
+        # Wakeword
+        self.wakewords = wakewords
+        self.wakeword_timeout = wakeword_timeout
 
         # Response handler
         self.handle_response = self.handle_response_default
@@ -133,9 +147,6 @@ class LiteSTS:
     async def process_audio_samples(self, samples: bytes, context_id: str):
         await self.vad.process_samples(samples, context_id)
 
-    async def start_with_stream(self, input_stream: AsyncGenerator[bytes, None], context_id: str):
-        await self.vad.process_stream(input_stream, context_id)
-
     def process_llm_chunk(self, func) -> dict:
         self._process_llm_chunk = func
         return func
@@ -149,13 +160,31 @@ class LiteSTS:
     async def stop_response_default(self, context_id: str):
         logger.info(f"Stop response: {context_id}")
 
+    def is_awake(self, request: STSRequest, last_request_at: datetime) -> bool:
+        now = datetime.now(timezone.utc)
+
+        if not self.wakewords:
+            # Always return True if no wakewords are registered
+            return True
+
+        if self.wakeword_timeout > (now - last_request_at).total_seconds():
+            # Return True if not timeout
+            return True
+
+        for ww in self.wakewords:
+            if ww in request.text:
+                logger.info(f"Wake by '{ww}': {request.text}")
+                return True
+
+        return False
+
     async def invoke(self, request: STSRequest) -> AsyncGenerator[STSResponse, None]:
         start_time = time()
         transaction_id = str(uuid4())
+
         performance = PerformanceRecord(
             transaction_id=transaction_id,
             user_id=request.user_id,
-            context_id=request.context_id,
             stt_name=self.stt.__class__.__name__,
             llm_name=self.llm.__class__.__name__,
             tts_name=self.tts.__class__.__name__
@@ -181,18 +210,36 @@ class LiteSTS:
             recognized_text = ""    # Request without both text and audio (e.g. image only)
         request.text = recognized_text
 
-        performance.request_text = recognized_text
+        performance.request_text = request.text
         performance.request_files = json.dumps(request.files or [], ensure_ascii=False)
         performance.voice_length = request.audio_duration
         performance.stt_time = time() - start_time
+
+        # Get context
+        last_created_at = await self.llm.context_manager.get_last_created_at(request.context_id)
+        if request.context_id:
+            if last_created_at == datetime.min:
+                logger.info(f"Invalid context_id: {request.context_id}")
+                request.context_id = None
+
+        if not request.context_id:
+            request.context_id = str(uuid4())
+            logger.info(f"Create new context_id: {request.context_id}")
+
+        performance.context_id = request.context_id
+
+        if not self.is_awake(request, last_created_at):
+            # Clear request content to avoid LLM and TTS processing
+            request.text = None
+            request.files = {}
 
         # Stop on-going response before new response
         await self.stop_response(request.context_id)
         performance.stop_response_time = time() - start_time
 
         # LLM
-        await self._on_before_llm(request.context_id, recognized_text, request.files)
-        llm_stream = self.llm.chat_stream(request.context_id, recognized_text, request.files)
+        await self._on_before_llm(request.context_id, request.text, request.files)
+        llm_stream = self.llm.chat_stream(request.context_id, request.text, request.files)
 
         # TTS
         async def synthesize_stream() -> AsyncGenerator[Tuple[bytes, LLMResponse], None]:
@@ -236,7 +283,11 @@ class LiteSTS:
             performance.response_voice_text = voice_text
 
         # Handle response
-        yield STSResponse(type="start", context_id=request.context_id)
+        yield STSResponse(
+            type="start",
+            user_id=request.user_id,
+            context_id=request.context_id
+        )
 
         response_text = ""
         response_audios = []
@@ -255,6 +306,7 @@ class LiteSTS:
 
             yield STSResponse(
                 type="chunk",
+                user_id=request.user_id,
                 context_id=llm_stream_chunk.context_id,
                 text=llm_stream_chunk.text,
                 voice_text=llm_stream_chunk.voice_text,
@@ -267,6 +319,7 @@ class LiteSTS:
 
         final_response = STSResponse(
             type="final",
+            user_id=request.user_id,
             context_id=request.context_id,
             text=response_text,
             voice_text=performance.response_voice_text
