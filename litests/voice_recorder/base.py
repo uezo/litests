@@ -96,10 +96,13 @@ class VoiceRecorder(ABC):
                             voice_bytes=v,
                             audio_format=voice.audio_format
                         )
+
             except Exception as ex:
                 logger.error(f"Error at saving voice: {ex}")
 
-            self.queue.task_done()
+            finally:
+                if not self.queue.empty():
+                    self.queue.task_done()
 
     async def record(self, voice: Voice):
         if self.worker_task is None:
@@ -109,4 +112,4 @@ class VoiceRecorder(ABC):
     async def stop(self):
         await self.queue.put(None)
         if self.worker_task:
-            await self.worker_task
+            self.worker_task.cancel()
