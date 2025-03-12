@@ -41,11 +41,10 @@ class RecordingAdapter(Adapter):
         elif response.type == "final" and response.audio_data:
             self.final_audio = response.audio_data
 
-    async def stop_response(self, context_id: str):
+    async def stop_response(self, session_id: str, context_id: str):
         # For this test, we do not need to do anything special
         pass
 
-@pytest.mark.skip("s")
 @pytest.mark.asyncio
 async def test_lite_sts_pipeline():
     """
@@ -131,7 +130,6 @@ async def test_lite_sts_pipeline():
     await stt_for_final.close()
 
 
-@pytest.mark.skip("s")
 @pytest.mark.asyncio
 async def test_lite_sts_pipeline_wakeword():
     # TTS for input audio instead of human's speech
@@ -195,11 +193,13 @@ async def test_lite_sts_pipeline_wakeword():
 
     # Check no voice generated
     assert adapter.final_audio is b""
+    assert context_id is None
 
     # Second request with wakeword: invoked
     await adapter.handle_request(STSRequest(
         context_id=context_id, user_id="litests_user", audio_data=await get_input_voice("やあ、こんにちは！ところで日本の首都は？")
     ))
+    context_id = adapter.final_context_id
 
     # Check output voice audio
     final_audio = adapter.final_audio
@@ -230,6 +230,7 @@ async def test_lite_sts_pipeline_wakeword():
 
     # Check no voice generated
     assert adapter.final_audio is b""
+    assert adapter.final_context_id == context_id   # Wakeword timeout but context is still alive
 
     # Second request with wakeword: invoked
     await adapter.handle_request(STSRequest(
@@ -240,12 +241,13 @@ async def test_lite_sts_pipeline_wakeword():
     output_text = await get_output_text(final_audio)
     assert "ベルリン" in output_text, f"Expected 'ベルリン' in recognized text, but got: {output_text}"
     adapter.final_audio = b""
+    assert adapter.final_context_id == context_id
 
     await lite_sts.shutdown()
     await voicevox_for_input.close()
     await stt_for_final.close()
 
-@pytest.mark.skip("s")
+
 @pytest.mark.asyncio
 async def test_lite_sts_pipeline_novoice():
     # Initialize pipeline
