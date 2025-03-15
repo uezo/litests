@@ -105,8 +105,10 @@ class AudioDeviceAdapter(Adapter):
     async def handle_response(self, response: STSResponse):
         if response.type == "chunk" and response.audio_data:
             self.response_queue.put(response.audio_data)
+        elif response.type == "stop":
+            await self.stop_response()
 
-    async def stop_response(self, context_id: str):
+    async def stop_response(self, session_id: str, context_id: str):
         while not self.response_queue.empty():
             try:
                 _ = self.response_queue.get_nowait()

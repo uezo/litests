@@ -64,9 +64,9 @@ class StandardSpeechDetector(SpeechDetector):
         self.amplitude_threshold = 32767 * (10 ** (value / 20.0))
         logger.debug(f"Updated volume_db_threshold to {value} dB, amplitude_threshold={self.amplitude_threshold}")
 
-    async def execute_on_speech_detected(self, recorded_data: bytes, recorded_duration: float, session_id: str, session_data: dict):
+    async def execute_on_speech_detected(self, recorded_data: bytes, recorded_duration: float, session_id: str):
         try:
-            await self._on_speech_detected(recorded_data, recorded_duration, session_id, session_data)
+            await self._on_speech_detected(recorded_data, recorded_duration, session_id)
         except Exception as ex:
             logger.error(f"Error in task for session {session_id}: {ex}", exc_info=True)
 
@@ -125,7 +125,7 @@ class StandardSpeechDetector(SpeechDetector):
                     if self.debug:
                         logger.info(f"Recording finished: {recorded_duration} sec")
                     recorded_data = bytes(session.buffer)
-                    asyncio.create_task(self.execute_on_speech_detected(recorded_data, recorded_duration, session.session_id, session.data))
+                    asyncio.create_task(self.execute_on_speech_detected(recorded_data, recorded_duration, session.session_id))
                 session.reset()
 
             elif session.record_duration >= self.max_duration:
@@ -164,6 +164,11 @@ class StandardSpeechDetector(SpeechDetector):
         if session_id in self.recording_sessions:
             self.recording_sessions[session_id].reset()
             del self.recording_sessions[session_id]
+
+    def get_session_data(self, session_id: str, key: str):
+        session = self.recording_sessions.get(session_id)
+        if session:
+            return session.data.get(key)
 
     def set_session_data(self, session_id: str, key: str, value: any, create_session: bool = False):
         if create_session:

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from time import time
-from typing import AsyncGenerator, Tuple, List
+from typing import AsyncGenerator, Tuple, List, Dict
 from uuid import uuid4
 from .models import STSRequest, STSResponse
 from .vad import SpeechDetector, StandardSpeechDetector
@@ -46,6 +46,9 @@ class LiteSTS:
         voice_recorder_enabled: bool = True,
         debug: bool = False
     ):
+        # Cancellation
+        self.active_transactions: Dict[str, str] = {}
+
         # Logger
         self.debug = debug
         if self.debug and not logger.hasHandlers():
@@ -65,10 +68,11 @@ class LiteSTS:
         )
 
         @self.vad.on_speech_detected
-        async def on_speech_detected(data: bytes, recorded_duration: float, session_id: str, session_data: dict):
+        async def on_speech_detected(data: bytes, recorded_duration: float, session_id: str):
             async for response in self.invoke(STSRequest(
-                user_id=session_data.get("user_id"),
-                context_id=session_data.get("context_id"),
+                session_id=session_id,
+                user_id=self.vad.get_session_data(session_id, "user_id"),
+                context_id=self.vad.get_session_data(session_id, "context_id"),
                 audio_data=data,
                 audio_duration=recorded_duration
             )):
@@ -135,10 +139,10 @@ class LiteSTS:
         self._on_finish = func
         return func
 
-    async def on_before_llm_default(self, context_id: str, text: str, files: list):
+    async def on_before_llm_default(self, request: STSRequest):
         pass
 
-    async def on_before_tts_default(self, context_id: str):
+    async def on_before_tts_default(self, request: STSRequest):
         pass
 
     async def on_finish_default(self, request: STSRequest, response: STSResponse):
@@ -157,8 +161,8 @@ class LiteSTS:
     async def handle_response_default(self, response: STSResponse):
         logger.info(f"Handle response: {response}")
 
-    async def stop_response_default(self, context_id: str):
-        logger.info(f"Stop response: {context_id}")
+    async def stop_response_default(self, session_id: str, context_id: str):
+        logger.info(f"Stop response: {session_id} / {context_id}")
 
     def is_awake(self, request: STSRequest, last_request_at: datetime) -> bool:
         now = datetime.now(timezone.utc)
@@ -177,6 +181,9 @@ class LiteSTS:
                 return True
 
         return False
+
+    def is_transaction_active(self, session_id: str, transaction_id: str) -> bool:
+        return self.active_transactions.get(session_id) == transaction_id
 
     async def invoke(self, request: STSRequest) -> AsyncGenerator[STSResponse, None]:
         start_time = time()
@@ -215,30 +222,43 @@ class LiteSTS:
         performance.voice_length = request.audio_duration
         performance.stt_time = time() - start_time
 
-        # Get context
         last_created_at = await self.llm.context_manager.get_last_created_at(request.context_id)
-        if request.context_id:
-            if last_created_at == datetime.min:
-                logger.info(f"Invalid context_id: {request.context_id}")
-                request.context_id = None
+        if self.is_awake(request, last_created_at):
+            # Get context
+            if request.context_id:
+                if last_created_at == datetime.min.replace(tzinfo=timezone.utc):
+                    logger.info(f"Invalid context_id: {request.context_id}")
+                    request.context_id = None
 
-        if not request.context_id:
-            request.context_id = str(uuid4())
-            logger.info(f"Create new context_id: {request.context_id}")
+            if not request.context_id:
+                request.context_id = str(uuid4())
+                logger.info(f"Create new context_id: {request.context_id}")
 
-        performance.context_id = request.context_id
-
-        if not self.is_awake(request, last_created_at):
+            # Overwrite active transaction
+            if self.debug:
+                logger.info(f"Start transaction: {transaction_id} {request.text} (previous: {self.active_transactions.get(request.session_id)})")
+            self.active_transactions[request.session_id] = transaction_id
+        else:
             # Clear request content to avoid LLM and TTS processing
             request.text = None
             request.files = {}
 
+        performance.context_id = request.context_id
+
         # Stop on-going response before new response
-        await self.stop_response(request.context_id)
+        await self.stop_response(request.session_id, request.context_id)
         performance.stop_response_time = time() - start_time
 
+        yield STSResponse(
+            type="start",
+            session_id=request.session_id,
+            user_id=request.user_id,
+            context_id=request.context_id,
+            metadata={"request_text": request.text}
+        )
+
         # LLM
-        await self._on_before_llm(request.context_id, request.text, request.files)
+        await self._on_before_llm(request)
         llm_stream = self.llm.chat_stream(request.context_id, request.text, request.files)
 
         # TTS
@@ -246,6 +266,12 @@ class LiteSTS:
             voice_text = ""
             language = None
             async for llm_stream_chunk in llm_stream:
+                if not self.is_transaction_active(request.session_id, transaction_id):
+                    # Break when new transaction started in this session
+                    if self.debug:
+                        logger.info(f"Break llm_stream for new transaction: {self.active_transactions.get(request.session_id)} {request.text} (current: {transaction_id})")
+                    break
+
                 # LLM performance
                 if performance.llm_first_chunk_time == 0:
                     performance.llm_first_chunk_time = time() - start_time
@@ -260,7 +286,7 @@ class LiteSTS:
                     voice_text += llm_stream_chunk.voice_text
                     if performance.llm_first_voice_chunk_time == 0:
                         performance.llm_first_voice_chunk_time = time() - start_time
-                        await self._on_before_tts(request.context_id)
+                        await self._on_before_tts(request)
                 performance.llm_time = time() - start_time
 
                 # Parse info from LLM chunk (especially, language)
@@ -282,19 +308,21 @@ class LiteSTS:
                 yield audio_chunk, llm_stream_chunk
             performance.response_voice_text = voice_text
 
-        # Handle response
-        yield STSResponse(
-            type="start",
-            user_id=request.user_id,
-            context_id=request.context_id
-        )
-
         response_text = ""
         response_audios = []
+        is_first_chunk = True
         async for audio_chunk, llm_stream_chunk in synthesize_stream():
+            if not self.is_transaction_active(request.session_id, transaction_id):
+                # Break when new transaction started in this session
+                if self.debug:
+                    logger.info(f"Break synthesize_stream for new transaction: {self.active_transactions.get(request.session_id)} {request.text} (current: {transaction_id})")
+                break
+
             if llm_stream_chunk.tool_call:
                 yield STSResponse(
                     type="tool_call",
+                    session_id=request.session_id,
+                    user_id=request.user_id,
                     context_id=llm_stream_chunk.context_id,
                     tool_call=llm_stream_chunk.tool_call
                 )
@@ -306,12 +334,15 @@ class LiteSTS:
 
             yield STSResponse(
                 type="chunk",
+                session_id=request.session_id,
                 user_id=request.user_id,
                 context_id=llm_stream_chunk.context_id,
                 text=llm_stream_chunk.text,
                 voice_text=llm_stream_chunk.voice_text,
-                audio_data=audio_chunk
+                audio_data=audio_chunk,
+                metadata={"is_first_chunk": is_first_chunk}
             )
+            is_first_chunk = False
 
         performance.response_text = response_text
         performance.total_time = time() - start_time
@@ -319,6 +350,7 @@ class LiteSTS:
 
         final_response = STSResponse(
             type="final",
+            session_id=request.session_id,
             user_id=request.user_id,
             context_id=request.context_id,
             text=response_text,
@@ -337,3 +369,4 @@ class LiteSTS:
 
     async def shutdown(self):
         self.performance_recorder.close()
+        await self.voice_recorder.stop()

@@ -14,5 +14,5 @@ class Adapter(ABC):
         pass
 
     @abstractmethod
-    async def stop_response(self, context_id: str):
+    async def stop_response(self, session_id: str, context_id: str):
         pass
