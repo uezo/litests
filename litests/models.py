@@ -25,3 +25,4 @@ class STSResponse:
     voice_text: str = None
     audio_data: bytes = None
     tool_call: ToolCall = None
+    metadata: dict = None
