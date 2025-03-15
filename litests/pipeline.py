@@ -249,6 +249,14 @@ class LiteSTS:
         await self.stop_response(request.session_id, request.context_id)
         performance.stop_response_time = time() - start_time
 
+        yield STSResponse(
+            type="start",
+            session_id=request.session_id,
+            user_id=request.user_id,
+            context_id=request.context_id,
+            metadata={"request_text": request.text}
+        )
+
         # LLM
         await self._on_before_llm(request)
         llm_stream = self.llm.chat_stream(request.context_id, request.text, request.files)
@@ -300,16 +308,9 @@ class LiteSTS:
                 yield audio_chunk, llm_stream_chunk
             performance.response_voice_text = voice_text
 
-        # Handle response
-        yield STSResponse(
-            type="start",
-            session_id=request.session_id,
-            user_id=request.user_id,
-            context_id=request.context_id
-        )
-
         response_text = ""
         response_audios = []
+        is_first_chunk = True
         async for audio_chunk, llm_stream_chunk in synthesize_stream():
             if not self.is_transaction_active(request.session_id, transaction_id):
                 # Break when new transaction started in this session
@@ -338,8 +339,10 @@ class LiteSTS:
                 context_id=llm_stream_chunk.context_id,
                 text=llm_stream_chunk.text,
                 voice_text=llm_stream_chunk.voice_text,
-                audio_data=audio_chunk
+                audio_data=audio_chunk,
+                metadata={"is_first_chunk": is_first_chunk}
             )
+            is_first_chunk = False
 
         performance.response_text = response_text
         performance.total_time = time() - start_time
