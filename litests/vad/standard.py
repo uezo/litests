@@ -3,7 +3,7 @@ from collections import deque
 import logging
 import math
 import struct
-from typing import AsyncGenerator, Callable, Awaitable, Optional, Dict
+from typing import AsyncGenerator, Callable, Optional, Dict
 from . import SpeechDetector
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ class RecordingSession:
         self.silence_duration: float = 0
         self.record_duration: float = 0
         self.preroll_buffer: deque = deque(maxlen=preroll_buffer_count)
+        self.amplitude_threshold: float = 0
         self.data: dict = {}
 
     def reset(self):
@@ -95,7 +96,7 @@ class StandardSpeechDetector(SpeechDetector):
             logger.debug(f"dB: {current_db:.2f}, duration: {session.record_duration:.2f}, session: {session.session_id}")
 
         if not session.is_recording:
-            if max_amplitude > self.amplitude_threshold:
+            if max_amplitude > session.amplitude_threshold:
                 # Start recording
                 session.reset()
                 session.is_recording = True
@@ -111,7 +112,7 @@ class StandardSpeechDetector(SpeechDetector):
             session.buffer.extend(samples)
             session.record_duration += sample_duration
 
-            if max_amplitude > self.amplitude_threshold:
+            if max_amplitude > session.amplitude_threshold:
                 session.silence_duration = 0
             else:
                 session.silence_duration += sample_duration
@@ -153,7 +154,8 @@ class StandardSpeechDetector(SpeechDetector):
         if session_id not in self.recording_sessions:
             session = RecordingSession(session_id, self.preroll_buffer_count)
             self.recording_sessions[session_id] = session
-        
+        if session.amplitude_threshold == 0:
+            session.amplitude_threshold = self.amplitude_threshold
         return self.recording_sessions[session_id]
 
     def reset_session(self, session_id: str):
@@ -178,3 +180,7 @@ class StandardSpeechDetector(SpeechDetector):
 
         if session:
             session.data[key] = value
+
+    def set_volume_db_threshold(self, session_id: str, value: float):
+        session = self.get_session(session_id)
+        session.amplitude_threshold = 32767 * (10 ** (value / 20.0))
