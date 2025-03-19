@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from time import time
+import traceback
 from typing import AsyncGenerator, Tuple, List, Dict
 from uuid import uuid4
 from .models import STSRequest, STSResponse
@@ -186,183 +187,196 @@ class LiteSTS:
         return self.active_transactions.get(session_id) == transaction_id
 
     async def invoke(self, request: STSRequest) -> AsyncGenerator[STSResponse, None]:
-        start_time = time()
-        transaction_id = str(uuid4())
+        try:
+            start_time = time()
+            transaction_id = str(uuid4())
 
-        performance = PerformanceRecord(
-            transaction_id=transaction_id,
-            user_id=request.user_id,
-            stt_name=self.stt.__class__.__name__,
-            llm_name=self.llm.__class__.__name__,
-            tts_name=self.tts.__class__.__name__
-        )
+            performance = PerformanceRecord(
+                transaction_id=transaction_id,
+                user_id=request.user_id,
+                stt_name=self.stt.__class__.__name__,
+                llm_name=self.llm.__class__.__name__,
+                tts_name=self.tts.__class__.__name__
+            )
 
-        if request.text:
-            # Use text if exist
-            recognized_text = request.text
-            if self.debug:
-                logger.info(f"Use text in request: {recognized_text}")
-        elif request.audio_data:
-            if self.voice_recorder_enabled:
-                await self.voice_recorder.record(RequestVoice(transaction_id, request.audio_data))
-            # Speech-to-Text
-            recognized_text = await self.stt.transcribe(request.audio_data)
-            if not recognized_text:
+            if request.text:
+                # Use text if exist
+                recognized_text = request.text
                 if self.debug:
-                    logger.info("No speech recognized.")
-                return
-            if self.debug:
-                logger.info(f"Recognized text from request: {recognized_text}")
-        else:
-            recognized_text = ""    # Request without both text and audio (e.g. image only)
-        request.text = recognized_text
+                    logger.info(f"Use text in request: {recognized_text}")
+            elif request.audio_data:
+                if self.voice_recorder_enabled:
+                    await self.voice_recorder.record(RequestVoice(transaction_id, request.audio_data))
+                # Speech-to-Text
+                recognized_text = await self.stt.transcribe(request.audio_data)
+                if not recognized_text:
+                    if self.debug:
+                        logger.info("No speech recognized.")
+                    return
+                if self.debug:
+                    logger.info(f"Recognized text from request: {recognized_text}")
+            else:
+                recognized_text = ""    # Request without both text and audio (e.g. image only)
+            request.text = recognized_text
 
-        performance.request_text = request.text
-        performance.request_files = json.dumps(request.files or [], ensure_ascii=False)
-        performance.voice_length = request.audio_duration
-        performance.stt_time = time() - start_time
+            performance.request_text = request.text
+            performance.request_files = json.dumps(request.files or [], ensure_ascii=False)
+            performance.voice_length = request.audio_duration
+            performance.stt_time = time() - start_time
 
-        last_created_at = await self.llm.context_manager.get_last_created_at(request.context_id)
-        if self.is_awake(request, last_created_at):
-            # Get context
-            if request.context_id:
-                if last_created_at == datetime.min.replace(tzinfo=timezone.utc):
-                    logger.info(f"Invalid context_id: {request.context_id}")
-                    request.context_id = None
+            last_created_at = await self.llm.context_manager.get_last_created_at(request.context_id)
+            if self.is_awake(request, last_created_at):
+                # Get context
+                if request.context_id:
+                    if last_created_at == datetime.min.replace(tzinfo=timezone.utc):
+                        logger.info(f"Invalid context_id: {request.context_id}")
+                        request.context_id = None
 
-            if not request.context_id:
-                request.context_id = str(uuid4())
-                logger.info(f"Create new context_id: {request.context_id}")
+                if not request.context_id:
+                    request.context_id = str(uuid4())
+                    logger.info(f"Create new context_id: {request.context_id}")
 
-            # Overwrite active transaction
-            if self.debug:
-                logger.info(f"Start transaction: {transaction_id} {request.text} (previous: {self.active_transactions.get(request.session_id)})")
-            self.active_transactions[request.session_id] = transaction_id
-        else:
-            # Clear request content to avoid LLM and TTS processing
-            request.text = None
-            request.files = {}
+                # Overwrite active transaction
+                if self.debug:
+                    logger.info(f"Start transaction: {transaction_id} {request.text} (previous: {self.active_transactions.get(request.session_id)})")
+                self.active_transactions[request.session_id] = transaction_id
+            else:
+                # Clear request content to avoid LLM and TTS processing
+                request.text = None
+                request.files = {}
 
-        performance.context_id = request.context_id
+            performance.context_id = request.context_id
 
-        # Stop on-going response before new response
-        await self.stop_response(request.session_id, request.context_id)
-        performance.stop_response_time = time() - start_time
+            # Stop on-going response before new response
+            await self.stop_response(request.session_id, request.context_id)
+            performance.stop_response_time = time() - start_time
 
-        yield STSResponse(
-            type="start",
-            session_id=request.session_id,
-            user_id=request.user_id,
-            context_id=request.context_id,
-            metadata={"request_text": request.text}
-        )
+            yield STSResponse(
+                type="start",
+                session_id=request.session_id,
+                user_id=request.user_id,
+                context_id=request.context_id,
+                metadata={"request_text": request.text}
+            )
 
-        # LLM
-        await self._on_before_llm(request)
-        llm_stream = self.llm.chat_stream(request.context_id, request.text, request.files)
+            # LLM
+            await self._on_before_llm(request)
+            llm_stream = self.llm.chat_stream(request.context_id, request.text, request.files)
 
-        # TTS
-        async def synthesize_stream() -> AsyncGenerator[Tuple[bytes, LLMResponse], None]:
-            voice_text = ""
-            language = None
-            async for llm_stream_chunk in llm_stream:
+            # TTS
+            async def synthesize_stream() -> AsyncGenerator[Tuple[bytes, LLMResponse], None]:
+                voice_text = ""
+                language = None
+                async for llm_stream_chunk in llm_stream:
+                    if not self.is_transaction_active(request.session_id, transaction_id):
+                        # Break when new transaction started in this session
+                        if self.debug:
+                            logger.info(f"Break llm_stream for new transaction: {self.active_transactions.get(request.session_id)} {request.text} (current: {transaction_id})")
+                        break
+
+                    # LLM performance
+                    if performance.llm_first_chunk_time == 0:
+                        performance.llm_first_chunk_time = time() - start_time
+
+                    # ToolCall
+                    if llm_stream_chunk.tool_call:
+                        yield None, llm_stream_chunk
+                        continue
+
+                    # Voice
+                    if llm_stream_chunk.voice_text:
+                        voice_text += llm_stream_chunk.voice_text
+                        if performance.llm_first_voice_chunk_time == 0:
+                            performance.llm_first_voice_chunk_time = time() - start_time
+                            await self._on_before_tts(request)
+                    performance.llm_time = time() - start_time
+
+                    # Parse info from LLM chunk (especially, language)
+                    parsed_info = await self._process_llm_chunk(llm_stream_chunk)
+                    language = parsed_info.get("language") or language
+
+                    audio_chunk = await self.tts.synthesize(
+                        text=llm_stream_chunk.voice_text,
+                        style_info={"styled_text": llm_stream_chunk.text},
+                        language=language
+                    )
+
+                    # TTS performance
+                    if audio_chunk:
+                        if performance.tts_first_chunk_time == 0:
+                            performance.tts_first_chunk_time = time() - start_time
+                        performance.tts_time = time() - start_time
+
+                    yield audio_chunk, llm_stream_chunk
+                performance.response_voice_text = voice_text
+
+            response_text = ""
+            response_audios = []
+            is_first_chunk = True
+            async for audio_chunk, llm_stream_chunk in synthesize_stream():
                 if not self.is_transaction_active(request.session_id, transaction_id):
                     # Break when new transaction started in this session
                     if self.debug:
-                        logger.info(f"Break llm_stream for new transaction: {self.active_transactions.get(request.session_id)} {request.text} (current: {transaction_id})")
+                        logger.info(f"Break synthesize_stream for new transaction: {self.active_transactions.get(request.session_id)} {request.text} (current: {transaction_id})")
                     break
 
-                # LLM performance
-                if performance.llm_first_chunk_time == 0:
-                    performance.llm_first_chunk_time = time() - start_time
-
-                # ToolCall
                 if llm_stream_chunk.tool_call:
-                    yield None, llm_stream_chunk
+                    yield STSResponse(
+                        type="tool_call",
+                        session_id=request.session_id,
+                        user_id=request.user_id,
+                        context_id=llm_stream_chunk.context_id,
+                        tool_call=llm_stream_chunk.tool_call
+                    )
                     continue
 
-                # Voice
-                if llm_stream_chunk.voice_text:
-                    voice_text += llm_stream_chunk.voice_text
-                    if performance.llm_first_voice_chunk_time == 0:
-                        performance.llm_first_voice_chunk_time = time() - start_time
-                        await self._on_before_tts(request)
-                performance.llm_time = time() - start_time
-
-                # Parse info from LLM chunk (especially, language)
-                parsed_info = await self._process_llm_chunk(llm_stream_chunk)
-                language = parsed_info.get("language") or language
-
-                audio_chunk = await self.tts.synthesize(
-                    text=llm_stream_chunk.voice_text,
-                    style_info={"styled_text": llm_stream_chunk.text},
-                    language=language
-                )
-
-                # TTS performance
+                response_text += llm_stream_chunk.text
                 if audio_chunk:
-                    if performance.tts_first_chunk_time == 0:
-                        performance.tts_first_chunk_time = time() - start_time
-                    performance.tts_time = time() - start_time
+                    response_audios.append(audio_chunk)
 
-                yield audio_chunk, llm_stream_chunk
-            performance.response_voice_text = voice_text
-
-        response_text = ""
-        response_audios = []
-        is_first_chunk = True
-        async for audio_chunk, llm_stream_chunk in synthesize_stream():
-            if not self.is_transaction_active(request.session_id, transaction_id):
-                # Break when new transaction started in this session
-                if self.debug:
-                    logger.info(f"Break synthesize_stream for new transaction: {self.active_transactions.get(request.session_id)} {request.text} (current: {transaction_id})")
-                break
-
-            if llm_stream_chunk.tool_call:
                 yield STSResponse(
-                    type="tool_call",
+                    type="chunk",
                     session_id=request.session_id,
                     user_id=request.user_id,
                     context_id=llm_stream_chunk.context_id,
-                    tool_call=llm_stream_chunk.tool_call
+                    text=llm_stream_chunk.text,
+                    voice_text=llm_stream_chunk.voice_text,
+                    audio_data=audio_chunk,
+                    metadata={"is_first_chunk": is_first_chunk}
                 )
-                continue
+                is_first_chunk = False
 
-            response_text += llm_stream_chunk.text
-            if audio_chunk:
-                response_audios.append(audio_chunk)
+            performance.response_text = response_text
+            performance.total_time = time() - start_time
+            self.performance_recorder.record(performance)
 
-            yield STSResponse(
-                type="chunk",
+            final_response = STSResponse(
+                type="final",
                 session_id=request.session_id,
                 user_id=request.user_id,
-                context_id=llm_stream_chunk.context_id,
-                text=llm_stream_chunk.text,
-                voice_text=llm_stream_chunk.voice_text,
-                audio_data=audio_chunk,
-                metadata={"is_first_chunk": is_first_chunk}
+                context_id=request.context_id,
+                text=response_text,
+                voice_text=performance.response_voice_text
             )
-            is_first_chunk = False
 
-        performance.response_text = response_text
-        performance.total_time = time() - start_time
-        self.performance_recorder.record(performance)
+            if self.voice_recorder_enabled:
+                await self.voice_recorder.record(ResponseVoices(
+                    transaction_id, response_audios, self.voice_recorder_response_audio_format
+                ))
+            await self._on_finish(request, final_response)
+            yield final_response
+        
+        except Exception as iex:
+            tb = traceback.format_exc()
+            logger.error(f"Error at invoke: {iex}\n\n{tb}")
 
-        final_response = STSResponse(
-            type="final",
-            session_id=request.session_id,
-            user_id=request.user_id,
-            context_id=request.context_id,
-            text=response_text,
-            voice_text=performance.response_voice_text
-        )
-
-        if self.voice_recorder_enabled:
-            await self.voice_recorder.record(ResponseVoices(
-                transaction_id, response_audios, self.voice_recorder_response_audio_format
-            ))
-        await self._on_finish(request, final_response)
-        yield final_response
+            yield STSResponse(
+                type="final",
+                session_id=request.session_id,
+                user_id=request.user_id,
+                context_id=request.context_id,
+                metadata={"error": f"Error at invoke: {iex}\n\n{tb}" if self.debug else "Error at invoke."}
+            )
 
     async def finalize(self, context_id: str):
         await self.vad.finalize_session(context_id)
