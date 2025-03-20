@@ -151,12 +151,13 @@ class StandardSpeechDetector(SpeechDetector):
         self.delete_session(session_id)
 
     def get_session(self, session_id: str):
-        if session_id not in self.recording_sessions:
+        session = self.recording_sessions.get(session_id)
+        if session is None:
             session = RecordingSession(session_id, self.preroll_buffer_count)
             self.recording_sessions[session_id] = session
         if session.amplitude_threshold == 0:
             session.amplitude_threshold = self.amplitude_threshold
-        return self.recording_sessions[session_id]
+        return session
 
     def reset_session(self, session_id: str):
         if session := self.recording_sessions.get(session_id):
