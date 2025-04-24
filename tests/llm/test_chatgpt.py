@@ -56,7 +56,7 @@ async def test_chatgpt_service_simple():
     collected_text = []
     collected_voice = []
 
-    async for resp in service.chat_stream(context_id, user_message):
+    async for resp in service.chat_stream(context_id, "test_user", user_message):
         collected_text.append(resp.text)
         collected_voice.append(resp.voice_text)
 
@@ -92,7 +92,7 @@ async def test_chatgpt_service_image():
 
     collected_text = []
 
-    async for resp in service.chat_stream(context_id, "これは何ですか？漢字で答えてください。", files=[{"type": "image", "url": IMAGE_URL}]):
+    async for resp in service.chat_stream(context_id, "test_user", "これは何ですか？漢字で答えてください。", files=[{"type": "image", "url": IMAGE_URL}]):
         collected_text.append(resp.text)
 
     full_text = "".join(collected_text)
@@ -129,7 +129,7 @@ async def test_chatgpt_service_cot():
     collected_text = []
     collected_voice = []
 
-    async for resp in service.chat_stream(context_id, user_message):
+    async for resp in service.chat_stream(context_id, "test_user", user_message):
         collected_text.append(resp.text)
         collected_voice.append(resp.voice_text)
 
@@ -202,7 +202,7 @@ async def test_chatgpt_service_tool_calls():
     user_message = "次の問題を解いて: 1+1"
     collected_text = []
 
-    async for resp in service.chat_stream(context_id, user_message):
+    async for resp in service.chat_stream(context_id, "test_user", user_message):
         collected_text.append(resp.text)
 
     # Check context

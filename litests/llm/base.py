@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import asyncio
+import inspect
 import logging
 import re
 from typing import AsyncGenerator, List, Dict, Optional
@@ -90,7 +91,7 @@ class LLMService(ABC):
         pass
 
     @abstractmethod
-    async def get_llm_stream_response(self, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         pass
 
     def remove_control_tags(self, text: str) -> str:
@@ -99,7 +100,13 @@ class LLMService(ABC):
         clean_text = clean_text.strip()
         return clean_text
 
-    async def chat_stream(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> AsyncGenerator[LLMResponse, None]:
+    async def execute_tool(self, name: str, arguments: dict, metadata: dict):
+        tool_func = self.tool_functions[name]
+        if "metadata" in inspect.signature(tool_func).parameters:
+            arguments["metadata"] = metadata
+        return await tool_func(**arguments)
+
+    async def chat_stream(self, context_id: str, user_id: str, text: str, files: List[Dict[str, str]] = None) -> AsyncGenerator[LLMResponse, None]:
         logger.info(f"User: {text}")
         text = self._request_filter(text)
         logger.info(f"User(Filtered): {text}")
@@ -147,7 +154,7 @@ class LLMService(ABC):
 
             return None
 
-        async for chunk in self.get_llm_stream_response(context_id, messages):
+        async for chunk in self.get_llm_stream_response(context_id, user_id, messages):
             if chunk.tool_call:
                 yield chunk
                 continue
