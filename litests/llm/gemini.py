@@ -93,7 +93,7 @@ class GeminiService(LLMService):
         self.tool_functions[func.__name__] = func
         return func
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         stream_resp = await self.gemini_client.generate_content_async(
             contents=messages,
             tools=self.tools if self.tools else None,
@@ -118,7 +118,7 @@ class GeminiService(LLMService):
             for tc in tool_calls:
                 yield LLMResponse(context_id=context_id, tool_call=tc)
 
-                tool_result = await self.tool_functions[tc.name](**(tc.arguments))
+                tool_result = await self.execute_tool(tc.name, tc.arguments, {"user_id": user_id})
 
                 messages.append({
                     "role": "model",
@@ -140,5 +140,5 @@ class GeminiService(LLMService):
                     }]
                 })
 
-            async for llm_response in self.get_llm_stream_response(context_id, messages):
+            async for llm_response in self.get_llm_stream_response(context_id, user_id, messages):
                 yield llm_response

@@ -75,11 +75,13 @@ class DifyService(LLMService):
         pass
 
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         headers = {
             "Authorization": f"Bearer {self.api_key}"
         }
 
+        if user_id:
+            messages[0]["user"] = user_id
         stream_resp = await self.http_client.post(
             self.base_url + "/chat-messages",
             headers=headers,

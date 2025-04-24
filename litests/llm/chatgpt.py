@@ -82,7 +82,7 @@ class ChatGPTService(LLMService):
             return func
         return decorator
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[Dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[Dict]) -> AsyncGenerator[LLMResponse, None]:
         stream_resp = await self.openai_client.chat.completions.create(
             messages=messages,
             model=self.model,
@@ -114,7 +114,7 @@ class ChatGPTService(LLMService):
             for tc in tool_calls:
                 yield LLMResponse(context_id=context_id, tool_call=tc)
 
-                tool_result = await self.tool_functions[tc.name](**(json.loads(tc.arguments)))
+                tool_result = await self.execute_tool(tc.name, json.loads(tc.arguments), {"user_id": user_id})
 
                 messages.append({
                     "role": "assistant",
@@ -134,5 +134,5 @@ class ChatGPTService(LLMService):
                     "tool_call_id": tc.id
                 })
 
-            async for llm_response in self.get_llm_stream_response(context_id, messages):
+            async for llm_response in self.get_llm_stream_response(context_id, user_id, messages):
                 yield llm_response

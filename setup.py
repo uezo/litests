@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="litests",
-    version="0.3.8",
+    version="0.3.9",
     url="https://github.com/uezo/litests",
     author="uezo",
     author_email="uezo@uezo.net",
@@ -12,7 +12,7 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     packages=find_packages(exclude=["tests*"]),
-    install_requires=["httpx==0.27.0", "openai>=1.55.3", "aiofiles>=24.1.0"],
+    install_requires=["httpx>=0.27.0", "openai>=1.55.3", "aiofiles>=24.1.0"],
     license="Apache v2",
     classifiers=[
         "Programming Language :: Python :: 3"

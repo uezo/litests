@@ -73,7 +73,7 @@ class ClaudeService(LLMService):
             return func
         return decorator
 
-    async def get_llm_stream_response(self, context_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
         async with self.anthropic_client.messages.stream(
             messages=messages,
             system=self.system_prompt or "",
@@ -106,7 +106,7 @@ class ClaudeService(LLMService):
                 yield LLMResponse(context_id=context_id, tool_call=tc)
 
                 arguments_json = json.loads(tc.arguments)
-                tool_result = await self.tool_functions[tc.name](**arguments_json)
+                tool_result = await self.execute_tool(tc.name, arguments_json, {"user_id": user_id})
 
                 messages.append({
                     "role": "assistant",
@@ -127,5 +127,5 @@ class ClaudeService(LLMService):
                     }]
                 })
 
-            async for llm_response in self.get_llm_stream_response(context_id, messages):
+            async for llm_response in self.get_llm_stream_response(context_id, user_id, messages):
                 yield llm_response
