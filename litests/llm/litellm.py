@@ -41,14 +41,14 @@ class LiteLLMService(LLMService):
         self.model = model
         self.system_prompt_by_user_prompt = system_prompt_by_user_prompt
 
-    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None, system_prompt_params: Dict[str, any] = None) -> List[Dict]:
         messages = []
         if self.system_prompt:
             if self.system_prompt_by_user_prompt:
-                messages.append({"role": "user", "content": self.system_prompt})
+                messages.append({"role": "user", "content": self.get_system_prompt(system_prompt_params)})
                 messages.append({"role": "assistant", "content": "ok"})
             else:
-                messages.append({"role": "system", "content": self.system_prompt})
+                messages.append({"role": "system", "content": self.get_system_prompt(system_prompt_params)})
 
         # Extract the history starting from the first message where the role is 'user'
         histories = await self.context_manager.get_histories(context_id)
@@ -81,7 +81,7 @@ class LiteLLMService(LLMService):
             return func
         return decorator
 
-    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:
         stream_resp = await acompletion(
             api_key=self.api_key,
             base_url=self.base_url,

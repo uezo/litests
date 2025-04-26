@@ -74,6 +74,42 @@ async def test_claude_service_simple():
     assert any(m["role"] == "assistant" for m in messages), "Assistant message not found in context."
 
 
+
+@pytest.mark.asyncio
+async def test_claude_service_system_prompt_params():
+    """
+    Test ClaudeService with a basic prompt and its dynamic params.
+    This test actually calls OpenAI API, so it may cost tokens.
+    """
+    service = ClaudeService(
+        anthropic_api_key=CLAUDE_API_KEY,
+        system_prompt="あなたは{animal_name}です。語尾をそれらしくしてください。カタカナで表現します。",
+        model=MODEL,
+        temperature=0.5
+    )
+    context_id = f"test_system_prompt_params_context_{uuid4()}"
+
+    user_message = "こんにちは"
+
+    collected_text = []
+
+    async for resp in service.chat_stream(context_id, "test_user", user_message, system_prompt_params={"animal_name": "猫"}):
+        collected_text.append(resp.text)
+
+    full_text = "".join(collected_text)
+    assert len(full_text) > 0, "No text was returned from the LLM."
+
+    # Check the response content
+    assert "ニャ" in full_text, "ニャ doesn't appear in text."
+
+    # Check the context
+    messages = await service.context_manager.get_histories(context_id)
+    assert any(m["role"] == "user" for m in messages), "User message not found in context."
+    assert any(m["role"] == "assistant" for m in messages), "Assistant message not found in context."
+
+    await service.anthropic_client.close()
+
+
 @pytest.mark.asyncio
 async def test_claude_service_image():
     """

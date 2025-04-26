@@ -261,7 +261,7 @@ class LiteSTS:
 
             # LLM
             await self._on_before_llm(request)
-            llm_stream = self.llm.chat_stream(request.context_id, request.user_id, request.text, request.files)
+            llm_stream = self.llm.chat_stream(request.context_id, request.user_id, request.text, request.files, request.system_prompt_params)
 
             # TTS
             async def synthesize_stream() -> AsyncGenerator[Tuple[bytes, LLMResponse], None]:

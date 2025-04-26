@@ -82,8 +82,14 @@ class LLMService(ABC):
     def replace_last_option_split_char(self, original):
         return re.sub(self.option_split_chars_regex, r"\1|", original)
 
+    def get_system_prompt(self, system_prompt_params: Dict[str, any]):
+        if not system_prompt_params:
+            return self.system_prompt
+        else:
+            return self.system_prompt.format(**system_prompt_params)
+
     @abstractmethod
-    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None, system_prompt_params: Dict[str, any] = None) -> List[Dict]:
         pass
 
     @abstractmethod
@@ -91,7 +97,7 @@ class LLMService(ABC):
         pass
 
     @abstractmethod
-    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:
         pass
 
     def remove_control_tags(self, text: str) -> str:
@@ -106,7 +112,7 @@ class LLMService(ABC):
             arguments["metadata"] = metadata
         return await tool_func(**arguments)
 
-    async def chat_stream(self, context_id: str, user_id: str, text: str, files: List[Dict[str, str]] = None) -> AsyncGenerator[LLMResponse, None]:
+    async def chat_stream(self, context_id: str, user_id: str, text: str, files: List[Dict[str, str]] = None, system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:
         logger.info(f"User: {text}")
         text = self._request_filter(text)
         logger.info(f"User(Filtered): {text}")
@@ -114,7 +120,7 @@ class LLMService(ABC):
         if not text and not files:
             return
 
-        messages = await self.compose_messages(context_id, text, files)
+        messages = await self.compose_messages(context_id, text, files, system_prompt_params)
         message_length_at_start = len(messages) - 1
 
         stream_buffer = ""
@@ -154,7 +160,7 @@ class LLMService(ABC):
 
             return None
 
-        async for chunk in self.get_llm_stream_response(context_id, user_id, messages):
+        async for chunk in self.get_llm_stream_response(context_id, user_id, messages, system_prompt_params):
             if chunk.tool_call:
                 yield chunk
                 continue

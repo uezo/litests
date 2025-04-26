@@ -48,7 +48,7 @@ class GeminiService(LLMService):
             response.raise_for_status()
             return response.content
 
-    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None, system_prompt_params: Dict[str, any] = None) -> List[Dict]:
         messages = []
 
         # Extract the history starting from the first message where the role is 'user'
@@ -103,7 +103,7 @@ class GeminiService(LLMService):
         self.tool_functions[func.__name__] = func
         return func
 
-    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:
         if self.thinking_budget >= 0:
             thinking_config = types.ThinkingConfig(
                 thinking_budget=self.thinking_budget
@@ -114,7 +114,7 @@ class GeminiService(LLMService):
         stream_resp = await self.gemini_client.aio.models.generate_content_stream(
             model=self.model,
             config = types.GenerateContentConfig(
-                system_instruction=self.system_prompt,
+                system_instruction=self.get_system_prompt(system_prompt_params),
                 temperature=self.temperature,
                 tools=self.tools if self.tools else None,
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),

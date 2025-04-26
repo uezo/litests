@@ -48,9 +48,9 @@ class DifyService(LLMService):
             )
         )
 
-    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None, system_prompt_params: Dict[str, any] = None) -> List[Dict]:
         if self.make_inputs:
-            inputs = self.make_inputs(context_id, text, files)
+            inputs = self.make_inputs(context_id, text, files, system_prompt_params)
         else:
             inputs = {}
 
@@ -75,7 +75,7 @@ class DifyService(LLMService):
         pass
 
 
-    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:
         headers = {
             "Authorization": f"Bearer {self.api_key}"
         }
