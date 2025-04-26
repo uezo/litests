@@ -1,7 +1,8 @@
 import base64
 from logging import getLogger
 from typing import AsyncGenerator, Dict, List
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import httpx
 from . import LLMService, LLMResponse, ToolCall
 from .context_manager import ContextManager
@@ -15,8 +16,9 @@ class GeminiService(LLMService):
         *,
         gemini_api_key: str = None,
         system_prompt: str = None,
-        model: str = "gemini-2.0-flash-exp",
+        model: str = "gemini-2.0-flash",
         temperature: float = 0.5,
+        thinking_budget: int = -1,
         split_chars: List[str] = None,
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
@@ -35,15 +37,10 @@ class GeminiService(LLMService):
             context_manager=context_manager,
             debug=debug
         )
-        genai.configure(api_key=gemini_api_key)
-        generation_config = genai.GenerationConfig(
-            temperature=temperature
+        self.gemini_client = genai.Client(
+            api_key=gemini_api_key
         )
-        self.gemini_client = genai.GenerativeModel(
-            model_name="gemini-2.0-flash-exp",
-            generation_config=generation_config,
-            system_instruction=system_prompt
-        )
+        self.thinking_budget = thinking_budget
 
     async def download_image(self, url: str) -> bytes:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -65,21 +62,34 @@ class GeminiService(LLMService):
             for f in files:
                 if url := f.get("url"):
                     image_bytes = await self.download_image(url)
-                    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-                    parts.append({"mime_type": "image/png", "data": image_b64})
+                    parts.append(types.Part.from_bytes(
+                        data=image_bytes,
+                        mime_type="image/png",
+                    ))
         if text:
-            parts.append({"text": text})
+            parts.append(types.Part.from_text(text=text))
 
-        messages.append({"role": "user", "parts": parts})
+        messages.append(types.Content(role="user", parts=parts))
         return messages
 
     async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
-        messages.append({"role": "model", "parts": [{"text": response_text}]})
-        await self.context_manager.add_histories(context_id, messages, "gemini")
+        messages.append(types.Content(role="model", parts=[types.Part.from_text(text=response_text)]))
+        dict_messages = []
+        for m in messages:
+            dumped = m.model_dump()
+            for part in dumped.get("parts", []):
+                inline_data = part.get("inline_data")
+                if inline_data and "data" in inline_data:
+                    inline_data["data"] = base64.b64encode(inline_data["data"]).decode("utf-8")
+            dict_messages.append(dumped)
+        await self.context_manager.add_histories(context_id, dict_messages, "gemini")
 
     async def preflight(self):
         # Dummy request to initialize client (The first message takes long time)
-        stream_resp = await self.gemini_client.generate_content_async("say just \"hello\"", stream=True)
+        stream_resp = await self.gemini_client.aio.models.generate_content_stream(
+            model=self.model,
+            contents="say just \"hello\""
+        )
         async for chunk in stream_resp:
             pass
         logger.info("Gemini client initialized.")
@@ -94,10 +104,23 @@ class GeminiService(LLMService):
         return func
 
     async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
-        stream_resp = await self.gemini_client.generate_content_async(
+        if self.thinking_budget >= 0:
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=self.thinking_budget
+            )
+        else:
+            thinking_config = None
+
+        stream_resp = await self.gemini_client.aio.models.generate_content_stream(
+            model=self.model,
+            config = types.GenerateContentConfig(
+                system_instruction=self.system_prompt,
+                temperature=self.temperature,
+                tools=self.tools if self.tools else None,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                thinking_config=thinking_config
+            ),
             contents=messages,
-            tools=self.tools if self.tools else None,
-            stream=True
         )
 
         tool_calls: List[ToolCall] = []
@@ -106,7 +129,7 @@ class GeminiService(LLMService):
                 if content := part.text:
                     yield LLMResponse(context_id=context_id, text=content)
                 elif part.function_call:
-                    tool_calls.append(ToolCall("", part.function_call.name, dict(part.function_call.args)))
+                    tool_calls.append(ToolCall(part.function_call.id, part.function_call.name, dict(part.function_call.args)))
 
         if tool_calls:
             # Do something before tool calls (e.g. say to user that it will take a long time)
@@ -120,25 +143,14 @@ class GeminiService(LLMService):
 
                 tool_result = await self.execute_tool(tc.name, tc.arguments, {"user_id": user_id})
 
-                messages.append({
-                    "role": "model",
-                    "parts": [{
-                        "function_call": {
-                            "name": tc.name,
-                            "args": tc.arguments
-                        }
-                    }]
-                })
-
-                messages.append({
-                    "role": "user",
-                    "parts": [{
-                        "function_response": {
-                            "name": tc.name,
-                            "response": tool_result
-                        }
-                    }]
-                })
+                messages.append(types.Content(
+                    role="model",
+                    parts=[types.Part.from_function_call(name=tc.name, args=tc.arguments)]
+                ))
+                messages.append(types.Content(
+                    role="user",
+                    parts=[types.Part.from_function_response(name=tc.name, response=tool_result)]
+                ))
 
             async for llm_response in self.get_llm_stream_response(context_id, user_id, messages):
                 yield llm_response
