@@ -26,7 +26,7 @@ class ClaudeService(LLMService):
         debug: bool = False
     ):
         super().__init__(
-            system_prompt=system_prompt,
+            system_prompt=system_prompt or "",
             model=model,
             temperature=temperature,
             split_chars=split_chars,
@@ -42,7 +42,7 @@ class ClaudeService(LLMService):
         )
         self.max_tokens = max_tokens
 
-    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None) -> List[Dict]:
+    async def compose_messages(self, context_id: str, text: str, files: List[Dict[str, str]] = None, system_prompt_params: Dict[str, any] = None) -> List[Dict]:
         messages = []
 
         # Extract the history starting from the first message where the role is 'user'
@@ -73,10 +73,10 @@ class ClaudeService(LLMService):
             return func
         return decorator
 
-    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict]) -> AsyncGenerator[LLMResponse, None]:
+    async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:
         async with self.anthropic_client.messages.stream(
             messages=messages,
-            system=self.system_prompt or "",
+            system=self.get_system_prompt(system_prompt_params),
             model=self.model,
             temperature=self.temperature,
             tools=self.tools,

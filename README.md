@@ -136,6 +136,7 @@ tts.audio_format = "mulaw"  # <- TTS service should support mulaw
 See also `examples/local/llms.py`. For example, you can use Gemini by the following code:
 
 ```python
+# pip install google-genai
 gemini = GeminiService(
     gemini_api_key=GEMINI_API_KEY
 )
