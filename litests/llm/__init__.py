@@ -1,1 +1,1 @@
-from .base import LLMService, LLMResponse, ToolCall
+from .base import LLMService, LLMResponse, ToolCall, Tool

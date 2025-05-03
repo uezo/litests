@@ -3,7 +3,7 @@ import asyncio
 import inspect
 import logging
 import re
-from typing import AsyncGenerator, List, Dict, Optional
+from typing import AsyncGenerator, List, Dict, Any, Callable, Optional
 from .context_manager import ContextManager, SQLiteContextManager
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,15 @@ class LLMResponse:
         self.tool_call = tool_call
 
 
+class Tool:
+    def __init__(self, name: str, spec: Dict[str, Any], func: Callable, instruction: str = None, is_dynamic: bool = False):
+        self.name = name
+        self.spec = spec
+        self.func = func
+        self.instruction = instruction
+        self.is_dynamic = is_dynamic
+
+
 class LLMService(ABC):
     def __init__(
         self,
@@ -35,6 +44,7 @@ class LLMService(ABC):
         option_split_chars: List[str] = None,
         option_split_threshold: int = 50,
         voice_text_tag: str = None,
+        use_dynamic_tools: bool = False,
         context_manager: ContextManager = None,
         debug: bool = False
     ):
@@ -53,8 +63,29 @@ class LLMService(ABC):
         self.option_split_chars_regex = f"({'|'.join(self.split_patterns)})\s*(?!.*({'|'.join(self.split_patterns)}))"
         self._request_filter = self.request_filter_default
         self.voice_text_tag = voice_text_tag
-        self.tools = []
-        self.tool_functions = {}
+        self.tools: Dict[str, Tool] = {}
+        self.use_dynamic_tools = use_dynamic_tools
+        self.dynamic_tool_instruction = """
+
+## Important: Use of `{dynamic_tool_name}`
+
+Output **only Function / Tool call** parts. Exclude text content.
+
+"""
+        self.additional_prompt_for_tool_listing = """
+----
+Extract up to five tools that could be used to process the above user input.
+The response should follow this format. If multiple tools apply, separate them with commas.
+
+[tools:{tool_name},{tool_name},{tool_name}]
+
+If none apply, respond as follows:
+
+[tool_name:NOT_FOUND]
+
+The list of tools is as follows:
+
+"""
         self._on_before_tool_calls = self.on_before_tool_calls_default
         self.context_manager = context_manager or SQLiteContextManager()
         self.debug = debug
@@ -107,10 +138,10 @@ class LLMService(ABC):
         return clean_text
 
     async def execute_tool(self, name: str, arguments: dict, metadata: dict):
-        tool_func = self.tool_functions[name]
-        if "metadata" in inspect.signature(tool_func).parameters:
+        tool = self.tools[name]
+        if "metadata" in inspect.signature(tool.func).parameters:
             arguments["metadata"] = metadata
-        return await tool_func(**arguments)
+        return await tool.func(**arguments)
 
     async def chat_stream(self, context_id: str, user_id: str, text: str, files: List[Dict[str, str]] = None, system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:
         logger.info(f"User: {text}")
