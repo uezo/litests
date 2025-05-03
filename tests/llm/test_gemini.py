@@ -202,8 +202,21 @@ async def test_gemini_service_tool_calls():
     )
     context_id = f"test_context_tool_{uuid4()}"
 
-    # Tool
-    @service.tool
+    # Register tool
+    tool_spec = {
+        "functionDeclarations": [{
+            "name": "solve_math",
+            "description": "Solve simple math problems",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "problem": {"type": "string"}
+                },
+                "required": ["problem"]
+            }
+        }]
+    }
+    @service.tool(tool_spec)
     async def solve_math(problem: str) -> Dict[str, Any]:
         """
         Tool function example: parse the problem and return a result.
