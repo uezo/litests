@@ -86,6 +86,7 @@ If none apply, respond as follows:
 The list of tools is as follows:
 
 """
+        self._get_dynamic_tools = self.get_dynamic_tools_default
         self._on_before_tool_calls = self.on_before_tool_calls_default
         self.context_manager = context_manager or SQLiteContextManager()
         self.debug = debug
@@ -102,6 +103,10 @@ The list of tools is as follows:
         def decorator(func):
             return func
         return decorator
+
+    async def get_dynamic_tools(self, func):
+        self._get_dynamic_tools = func
+        return func
 
     def on_before_tool_calls(self, func):
         self._on_before_tool_calls = func
@@ -126,6 +131,9 @@ The list of tools is as follows:
     @abstractmethod
     async def update_context(self, context_id: str, messages: List[Dict], response_text: str):
         pass
+
+    async def get_dynamic_tools_default(self, messages: List[dict], metadata: Dict[str, any] = None) -> List[Dict[str, any]]:
+        return []
 
     @abstractmethod
     async def get_llm_stream_response(self, context_id: str, user_id: str, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> AsyncGenerator[LLMResponse, None]:

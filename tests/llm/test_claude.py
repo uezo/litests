@@ -240,9 +240,10 @@ async def test_claude_service_tool_calls():
     assert messages[0]["content"] == [{"type": "text", "text": user_message}]
 
     assert messages[1]["role"] == "assistant"
-    assert messages[1]["content"][0]["type"] == "tool_use"
-    assert messages[1]["content"][0]["name"] == "solve_math"
-    tool_use_id = messages[1]["content"][0]["id"]
+    tool_use_content_index = len(messages[1]["content"][0]) - 1
+    assert messages[1]["content"][tool_use_content_index]["type"] == "tool_use"
+    assert messages[1]["content"][tool_use_content_index]["name"] == "solve_math"
+    tool_use_id = messages[1]["content"][tool_use_content_index]["id"]
 
     assert messages[2]["role"] == "user"
     assert messages[2]["content"][0]["type"] == "tool_result"

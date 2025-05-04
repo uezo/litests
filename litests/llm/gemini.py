@@ -129,7 +129,7 @@ class GeminiService(LLMService):
             return func
         return decorator
 
-    async def get_dynamic_tool(self, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> List[Dict[str, any]]:
+    async def get_dynamic_tools_default(self, messages: List[dict], metadata: Dict[str, any] = None) -> List[Dict[str, any]]:
         # Make additional prompt with registered tools
         tool_listing_prompt = self.additional_prompt_for_tool_listing
         for _, t in self.tools.items():
@@ -163,7 +163,7 @@ class GeminiService(LLMService):
         tool_choice_resp = await self.gemini_client.aio.models.generate_content(
             model=self.model,
             config = types.GenerateContentConfig(
-                system_instruction=self.get_system_prompt(system_prompt_params),
+                system_instruction=metadata["system_prompt"],
                 temperature=0.0,
                 thinking_config=thinking_config
             ),
@@ -222,18 +222,23 @@ class GeminiService(LLMService):
 
         tool_calls: List[ToolCall] = []
         try_dynamic_tools = False
+        response_text = ""
         async for chunk in stream_resp:
             if not chunk.candidates or not chunk.candidates[0].content.parts:
                 continue
             for part in chunk.candidates[0].content.parts:
                 if content := part.text:
                     if not try_dynamic_tools:
+                        response_text += content
                         yield LLMResponse(context_id=context_id, text=content)
                 elif part.function_call:
                     tool_calls.append(ToolCall(part.function_call.id, part.function_call.name, dict(part.function_call.args)))
                     if part.function_call.name == self.dynamic_tool_spec["functionDeclarations"][0]["name"]:
                         logger.info("Get dynamic tool")
-                        filtered_tools = await self.get_dynamic_tool(messages)
+                        filtered_tools = await self._get_dynamic_tools(
+                            messages,
+                            {"system_prompt": self.get_system_prompt(system_prompt_params)}
+                        )
                         logger.info(f"Dynamic tools: {filtered_tools}")
                         try_dynamic_tools = True
 
@@ -261,9 +266,13 @@ class GeminiService(LLMService):
                     logger.info(f"ToolCall result: {tool_result}")
 
                 if tool_result:
+                    model_parts = []
+                    if response_text:
+                        model_parts.append(types.Part.from_text(text=response_text))
+                    model_parts.append(types.Part.from_function_call(name=tc.name, args=tc.arguments))
                     messages.append(types.Content(
                         role="model",
-                        parts=[types.Part.from_function_call(name=tc.name, args=tc.arguments)]
+                        parts=model_parts
                     ))
                     messages.append(types.Content(
                         role="user",
