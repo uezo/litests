@@ -108,7 +108,7 @@ class LiteLLMService(LLMService):
             )
         return decorator
 
-    async def get_dynamic_tool(self, messages: List[dict]) -> List[Dict[str, any]]:
+    async def get_dynamic_tools_default(self, messages: List[dict], metadata: Dict[str, any] = None) -> List[Dict[str, any]]:
         # Make additional prompt with registered tools
         tool_listing_prompt = self.additional_prompt_for_tool_listing
         for _, t in self.tools.items():
@@ -196,6 +196,7 @@ class LiteLLMService(LLMService):
 
         tool_calls: List[ToolCall] = []
         try_dynamic_tools = False
+        response_text = ""
         async for chunk in stream_resp:
             if not chunk.choices:
                 continue
@@ -206,7 +207,7 @@ class LiteLLMService(LLMService):
                     tool_calls.append(ToolCall(t.id, t.function.name, ""))
                     if t.function.name == self.dynamic_tool_spec["function"]["name"]:
                         logger.info("Get dynamic tool")
-                        filtered_tools = await self.get_dynamic_tool(messages)
+                        filtered_tools = await self._get_dynamic_tools(messages)
                         logger.info(f"Dynamic tools: {filtered_tools}")
                         try_dynamic_tools = True
                 if t.function.arguments:
@@ -214,6 +215,7 @@ class LiteLLMService(LLMService):
 
             elif content := chunk.choices[0].delta.content:
                 if not try_dynamic_tools:
+                    response_text += content
                     yield LLMResponse(context_id=context_id, text=content)
 
         if tool_calls:
@@ -247,7 +249,8 @@ class LiteLLMService(LLMService):
                                 "name": tc.name,
                                 "arguments": tc.arguments
                             }
-                        }]
+                        }],
+                        "content": response_text if response_text else None
                     })
 
                     messages.append({

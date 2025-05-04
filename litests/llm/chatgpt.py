@@ -110,7 +110,7 @@ class ChatGPTService(LLMService):
             return func
         return decorator
 
-    async def get_dynamic_tool(self, messages: List[dict]) -> List[Dict[str, any]]:
+    async def get_dynamic_tools_default(self, messages: List[dict], metadata: Dict[str, any] = None) -> List[Dict[str, any]]:
         # Make additional prompt with registered tools
         tool_listing_prompt = self.additional_prompt_for_tool_listing
         for _, t in self.tools.items():
@@ -199,7 +199,7 @@ class ChatGPTService(LLMService):
                     tool_calls.append(ToolCall(t.id, t.function.name, ""))
                     if t.function.name == self.dynamic_tool_spec["function"]["name"]:
                         logger.info("Get dynamic tool")
-                        filtered_tools = await self.get_dynamic_tool(messages)
+                        filtered_tools = await self._get_dynamic_tools(messages)
                         logger.info(f"Dynamic tools: {filtered_tools}")
                         try_dynamic_tools = True
                 if t.function.arguments:

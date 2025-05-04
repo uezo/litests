@@ -99,7 +99,7 @@ class ClaudeService(LLMService):
             return func
         return decorator
 
-    async def get_dynamic_tool(self, messages: List[dict], system_prompt_params: Dict[str, any] = None) -> List[Dict[str, any]]:
+    async def get_dynamic_tools_default(self, messages: List[dict], metadata: Dict[str, any] = None) -> List[Dict[str, any]]:
         # Make additional prompt with registered tools
         tool_listing_prompt = self.additional_prompt_for_tool_listing
         for _, t in self.tools.items():
@@ -129,7 +129,7 @@ class ClaudeService(LLMService):
         # Call LLM to filter tools
         tool_choice_resp = await self.anthropic_client.messages.create(
             messages=messages[:-1] + [{"role": "user", "content": user_content_for_tool}],
-            system=self.get_system_prompt(system_prompt_params),
+            system=metadata["system_prompt"],
             model=self.model,
             temperature=0.0,
             max_tokens=self.max_tokens
@@ -181,7 +181,10 @@ class ClaudeService(LLMService):
                         tool_calls.append(ToolCall(chunk.content_block.id, chunk.content_block.name, ""))
                         if chunk.content_block.name == self.dynamic_tool_spec["name"]:
                             logger.info("Get dynamic tool")
-                            filtered_tools = await self.get_dynamic_tool(messages)
+                            filtered_tools = await self._get_dynamic_tools(
+                                messages,
+                                {"system_prompt": self.get_system_prompt(system_prompt_params)}
+                            )
                             logger.info(f"Dynamic tools: {filtered_tools}")
                             try_dynamic_tools = True
                 elif chunk.type == "content_block_delta":
@@ -217,14 +220,21 @@ class ClaudeService(LLMService):
                     logger.info(f"ToolCall result: {tool_result}")
 
                 if tool_result:
+                    assistant_content = []
+                    if response_text:
+                        assistant_content.append({
+                            "type": "text",
+                            "text": response_text
+                        })
+                    assistant_content.append({
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "input": arguments_json
+                    })
                     messages.append({
                         "role": "assistant",
-                        "content": [{
-                            "type": "tool_use",
-                            "id": tc.id,
-                            "name": tc.name,
-                            "input": arguments_json
-                        }]
+                        "content": assistant_content
                     })
 
                     messages.append({
