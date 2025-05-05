@@ -1,3 +1,10 @@
+> ⚠️ **This repository has been archived.**  
+> The core functionality of LiteSTS has been fully integrated into [AIAvatarKit](https://github.com/uezo/aiavatarkit) as of version 0.7.0.  
+> Development will continue in that project.  
+>  
+> If you're looking for the latest Speech-to-Speech features, please migrate to AIAvatarKit.
+
+
 # LiteSTS
 
 A super lightweight Speech-to-Speech framework with modular VAD, STT, LLM and TTS components. 🧩
